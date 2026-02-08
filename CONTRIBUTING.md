@@ -36,7 +36,7 @@ Before you ask a question, it is best to search for existing [Issues](/issues) t
 ### Your First Code Contribution
 
 1.  **Fork the repository** on GitHub.
-2.  **Clone your fork** locally: `git clone https://github.com/your-username/nothinger-compiler.git`
+2.  **Clone your fork** locally: `git clone https://github.com/hypecavess/nothinger-compiler.git`
 3.  **Install dependencies**: `npm install`
 4.  **Create a branch** for your feature/fix: `git checkout -b feature/amazing-feature`
 5.  **Write code and tests**. Ensure all tests pass: `npm test`
