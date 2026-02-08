@@ -1,5 +1,5 @@
 import { Chunk, OpCode } from "./chunk";
-import { ObjFunction, ObjNative, Value } from "./object";
+import { ObjClass, ObjFunction, ObjInstance, ObjNative, Value } from "./object";
 
 export enum InterpretResult {
     OK,
@@ -205,6 +205,18 @@ export class VM {
                         break;
                     }
 
+                    if (callee instanceof ObjClass) {
+                        const instance = new ObjInstance(callee);
+                        // Replace the class on the stack with the instance.
+                        // Currently stack: [..., Class, arg1, arg2, ...]
+                        // We need to set Class slot to Instance.
+                        this.stack[this.stack.length - argCount - 1] = instance;
+
+                        // If we had initializers/constructors, we would call them here.
+                        // For now we just return the instance.
+                        break;
+                    }
+
                     if (!(callee instanceof ObjFunction)) {
                         console.error("Can only call functions.");
                         return InterpretResult.RUNTIME_ERROR;
@@ -237,6 +249,48 @@ export class VM {
                     this.stack.length = this.frames[this.frameCount].slots;
                     this.push(result);
                     frame = this.frames[this.frameCount - 1];
+                    break;
+                }
+
+                case OpCode.OP_CLASS: {
+                    const name = frame.function.chunk.constants[frame.function.chunk.code[frame.ip++]] as string;
+                    const klass = new ObjClass(name);
+                    this.push(klass);
+                    break;
+                }
+
+                case OpCode.OP_GET_PROPERTY: {
+                    const name = frame.function.chunk.constants[frame.function.chunk.code[frame.ip++]] as string;
+                    const instance = this.peek(0);
+
+                    if (!(instance instanceof ObjInstance)) {
+                        console.error("Only instances have properties.");
+                        return InterpretResult.RUNTIME_ERROR;
+                    }
+
+                    if (instance.fields.has(name)) {
+                        this.pop(); // Instance
+                        this.push(instance.fields.get(name)!);
+                    } else {
+                        console.error(`Undefined property '${name}'.`);
+                        return InterpretResult.RUNTIME_ERROR;
+                    }
+                    break;
+                }
+
+                case OpCode.OP_SET_PROPERTY: {
+                    const name = frame.function.chunk.constants[frame.function.chunk.code[frame.ip++]] as string;
+                    const instance = this.peek(1);
+
+                    if (!(instance instanceof ObjInstance)) {
+                        console.error("Only instances have fields.");
+                        return InterpretResult.RUNTIME_ERROR;
+                    }
+
+                    const value = this.pop();
+                    instance.fields.set(name, value);
+                    this.pop(); // Instance
+                    this.push(value);
                     break;
                 }
             }

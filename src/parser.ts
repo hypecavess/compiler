@@ -23,6 +23,7 @@ export class Parser {
 
     private declaration(): Stmt.Stmt | null {
         try {
+            if (this.match(TokenType.CLASS)) return this.classDeclaration();
             if (this.match(TokenType.FUN)) return this.function("function");
             if (this.match(TokenType.VAR)) return this.varDeclaration();
             return this.statement();
@@ -30,6 +31,15 @@ export class Parser {
             this.synchronize();
             return null;
         }
+    }
+
+    private classDeclaration(): Stmt.Stmt {
+        const name = this.consume(TokenType.IDENTIFIER, "Expect class name.");
+        this.consume(TokenType.LEFT_BRACE, "Expect '{' before class body.");
+
+        this.consume(TokenType.RIGHT_BRACE, "Expect '}' after class body.");
+
+        return new Stmt.Class(name);
     }
 
     private function(kind: string): Stmt.Function {
@@ -61,12 +71,57 @@ export class Parser {
     }
 
     private statement(): Stmt.Stmt {
+        if (this.match(TokenType.FOR)) return this.forStatement();
+        if (this.match(TokenType.IF)) return this.ifStatement();
         if (this.match(TokenType.PRINT)) return this.printStatement();
         if (this.match(TokenType.RETURN)) return this.returnStatement();
-        if (this.match(TokenType.LEFT_BRACE)) return new Stmt.Block(this.block());
-        if (this.match(TokenType.IF)) return this.ifStatement();
         if (this.match(TokenType.WHILE)) return this.whileStatement();
+        if (this.match(TokenType.LEFT_BRACE)) return new Stmt.Block(this.block());
+
         return this.expressionStatement();
+    }
+
+    private forStatement(): Stmt.Stmt {
+        this.consume(TokenType.LEFT_PAREN, "Expect '(' after 'for'.");
+
+        let initializer: Stmt.Stmt | null;
+        if (this.match(TokenType.SEMICOLON)) {
+            initializer = null;
+        } else if (this.match(TokenType.VAR)) {
+            initializer = this.varDeclaration();
+        } else {
+            initializer = this.expressionStatement();
+        }
+
+        let condition: Expr.Expr | null = null;
+        if (!this.check(TokenType.SEMICOLON)) {
+            condition = this.expression();
+        }
+        this.consume(TokenType.SEMICOLON, "Expect ';' after loop condition.");
+
+        let increment: Expr.Expr | null = null;
+        if (!this.check(TokenType.RIGHT_PAREN)) {
+            increment = this.expression();
+        }
+        this.consume(TokenType.RIGHT_PAREN, "Expect ')' after for clauses.");
+
+        let body = this.statement();
+
+        if (increment !== null) {
+            body = new Stmt.Block([
+                body,
+                new Stmt.Expression(increment)
+            ]);
+        }
+
+        if (condition === null) condition = new Expr.Literal(true);
+        body = new Stmt.While(condition, body);
+
+        if (initializer !== null) {
+            body = new Stmt.Block([initializer, body]);
+        }
+
+        return body;
     }
 
     private returnStatement(): Stmt.Stmt {
@@ -135,6 +190,8 @@ export class Parser {
             if (expr instanceof Expr.Variable) {
                 const name = expr.name;
                 return new Expr.Assign(name, value);
+            } else if (expr instanceof Expr.Get) {
+                return new Expr.Set(expr.object, expr.name, value);
             }
 
             this.error(equals, "Invalid assignment target.");
@@ -218,6 +275,9 @@ export class Parser {
         while (true) {
             if (this.match(TokenType.LEFT_PAREN)) {
                 expr = this.finishCall(expr);
+            } else if (this.match(TokenType.DOT)) {
+                const name = this.consume(TokenType.IDENTIFIER, "Expect property name after '.'.");
+                expr = new Expr.Get(expr, name);
             } else {
                 break;
             }
@@ -248,6 +308,8 @@ export class Parser {
         if (this.match(TokenType.NUMBER, TokenType.STRING)) {
             return new Expr.Literal(this.previous().literal);
         }
+
+        if (this.match(TokenType.THIS)) return new Expr.This(this.previous());
 
         if (this.match(TokenType.IDENTIFIER)) {
             return new Expr.Variable(this.previous());

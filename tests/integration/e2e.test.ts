@@ -55,6 +55,26 @@ describe('Integration Tests (E2E)', () => {
         });
     });
 
+    describe('For Loops', () => {
+        test('for_loop.fu runs correctly', () => {
+            const source = fs.readFileSync(path.join(fixturesDir, 'for_loop.fu'), 'utf-8');
+            const { result, output } = run(source);
+
+            expect(result).toBe(InterpretResult.OK);
+            expect(output).toEqual(['10', '0', '1', '2']);
+        });
+    });
+
+    describe('Classes', () => {
+        test('classes.fu runs correctly', () => {
+            const source = fs.readFileSync(path.join(fixturesDir, 'classes.fu'), 'utf-8');
+            const { result, output } = run(source);
+
+            expect(result).toBe(InterpretResult.OK);
+            expect(output).toEqual(['3', 'Blueberry']);
+        });
+    });
+
     describe('All Fixture Files', () => {
         const fixtures = fs.readdirSync(fixturesDir).filter(f => f.endsWith('.fu'));
 

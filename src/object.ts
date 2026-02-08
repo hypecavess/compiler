@@ -2,7 +2,9 @@ import { Chunk } from "./chunk";
 
 export enum ObjType {
     OBJ_FUNCTION,
-    OBJ_NATIVE
+    OBJ_NATIVE,
+    OBJ_CLASS,
+    OBJ_INSTANCE
 }
 
 export abstract class Obj {
@@ -12,7 +14,7 @@ export abstract class Obj {
     }
 }
 
-export type Value = number | string | boolean | null | ObjFunction | ObjNative;
+export type Value = number | string | boolean | null | ObjFunction | ObjNative | ObjClass | ObjInstance;
 
 export class ObjFunction {
     arity: number = 0;
@@ -44,5 +46,30 @@ export class ObjNative {
 
     toString(): string {
         return `<native fn>`;
+    }
+}
+
+export class ObjClass {
+    name: string;
+
+    constructor(name: string) {
+        this.name = name;
+    }
+
+    toString(): string {
+        return this.name;
+    }
+}
+
+export class ObjInstance {
+    class: ObjClass;
+    fields: Map<string, Value> = new Map();
+
+    constructor(klass: ObjClass) {
+        this.class = klass;
+    }
+
+    toString(): string {
+        return `${this.class.name} instance`;
     }
 }

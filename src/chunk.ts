@@ -26,6 +26,9 @@ export enum OpCode {
     OP_LOOP,
     OP_CALL,
     OP_RETURN,
+    OP_CLASS,
+    OP_GET_PROPERTY,
+    OP_SET_PROPERTY,
 }
 
 export class Chunk {

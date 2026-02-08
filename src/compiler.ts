@@ -128,6 +128,13 @@ export class Compiler implements Stmt.StmtVisitor<void>, Expr.ExprVisitor<void> 
         this.emitConstant(compiler.function);
         const nameConstant = this.currentChunk().addConstant(stmt.name.lexeme);
         this.emitBytes(OpCode.OP_DEFINE_GLOBAL, nameConstant);
+        this.emitBytes(OpCode.OP_DEFINE_GLOBAL, nameConstant);
+    }
+
+    visitClassStmt(stmt: Stmt.Class): void {
+        const constant = this.currentChunk().addConstant(stmt.name.lexeme);
+        this.emitBytes(OpCode.OP_CLASS, constant);
+        this.emitBytes(OpCode.OP_DEFINE_GLOBAL, constant);
     }
 
     visitCallExpr(expr: Expr.Call): void {
@@ -343,5 +350,38 @@ export class Compiler implements Stmt.StmtVisitor<void>, Expr.ExprVisitor<void> 
             const constant = this.currentChunk().addConstant(expr.name.lexeme);
             this.emitBytes(OpCode.OP_SET_GLOBAL, constant);
         }
+    }
+
+    visitGetExpr(expr: Expr.Get): void {
+        this.evaluate(expr.object);
+        const name = this.currentChunk().addConstant(expr.name.lexeme);
+        this.emitBytes(OpCode.OP_GET_PROPERTY, name);
+    }
+
+    visitSetExpr(expr: Expr.Set): void {
+        this.evaluate(expr.value);
+        this.evaluate(expr.object);
+        const name = this.currentChunk().addConstant(expr.name.lexeme);
+        this.emitBytes(OpCode.OP_SET_PROPERTY, name);
+    }
+
+    visitThisExpr(expr: Expr.This): void {
+        // For now, treat 'this' as a variable.
+        // In a real implementation we would need to ensure we are inside a method.
+        // And 'this' should be at stack slot 0 (which we Reserved in constructor but currently is generic).
+        // Since we don't have methods yet, 'this' might not work as expected everywhere, but let's try resolving it as local.
+        // Actually, we need to resolve it. Token "this" needs to be resolved.
+        // But expr.keyword is "this".
+        // Let's try to resolve it as a local variable named "this".
+        // Note: The compiler constructor reserves slot 0 with name "". We might need to name it "this" inside methods.
+        // For now, let's just emit an error or try to resolve it.
+
+        // Simpler implementation for now: failure if used outside method (which we don't support yet).
+        // OR: Just try to resolve it. If we are in a script, it might fail.
+
+        // We'll leave it simple:
+        console.error("'this' not fully supported yet (no methods).");
+        // But to satisfy the visitor:
+        this.emitByte(OpCode.OP_NIL);
     }
 }

@@ -65,6 +65,12 @@ export class Disassembler {
                 return this.byteInstruction("OP_CALL", chunk, offset);
             case OpCode.OP_RETURN:
                 return this.simpleInstruction("OP_RETURN", offset);
+            case OpCode.OP_CLASS:
+                return this.constantInstruction("OP_CLASS", chunk, offset);
+            case OpCode.OP_GET_PROPERTY:
+                return this.constantInstruction("OP_GET_PROPERTY", chunk, offset);
+            case OpCode.OP_SET_PROPERTY:
+                return this.constantInstruction("OP_SET_PROPERTY", chunk, offset);
             default:
                 console.log(`Unknown opcode ${instruction}`);
                 return offset + 1;

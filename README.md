@@ -73,12 +73,20 @@ Getting **Compiler** up and running is straightforward. Follow these steps to se
     npm run build
     ```
 
-**Method 2: Install via npm** ***(Coming Soon)***
+**Method 2: Install via GitHub Packages**
 
-We are working on publishing the compiler to the npm registry. Once available, you will be able to install it globally with a single command:
-```bash
-npm install -g compiler
-```
+To install the compiler from GitHub Packages, you need to configure your npm registry.
+
+1.  **Configure Registry**
+    Create a `.npmrc` file with the following content (or run the command):
+    ```bash
+    npm config set @hypecavess:registry https://npm.pkg.github.com
+    ```
+
+2.  **Install Globally**
+    ```bash
+    npm install -g @hypecavess/compiler
+    ```
 
 <br />
 <br />

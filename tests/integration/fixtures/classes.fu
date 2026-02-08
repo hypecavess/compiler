@@ -1,0 +1,21 @@
+class Pair {
+}
+
+var p = Pair();
+p.first = 1;
+p.second = 2;
+
+print p.first + p.second; // Expect 3
+
+class Scone {
+  topping(first, second) {
+    print "scone with " + first + " and " + second;
+  }
+}
+
+// Methods not implemented yet, so we can't test them.
+// But we can test basic class instantiation and field access.
+
+var s = Scone();
+s.type = "Blueberry";
+print s.type; // Expect Blueberry

@@ -13,6 +13,9 @@ export interface ExprVisitor<R> {
     visitUnaryExpr(expr: Unary): R;
     visitVariableExpr(expr: Variable): R;
     visitAssignExpr(expr: Assign): R;
+    visitGetExpr(expr: Get): R;
+    visitSetExpr(expr: Set): R;
+    visitThisExpr(expr: This): R;
 }
 
 export class Call implements Expr {
@@ -102,12 +105,50 @@ export interface StmtVisitor<R> {
     visitVarStmt(stmt: Var): R;
     visitIfStmt(stmt: If): R;
     visitWhileStmt(stmt: While): R;
+    visitClassStmt(stmt: Class): R;
 }
 
 export class Block implements Stmt {
     statements: Stmt[];
     constructor(statements: Stmt[]) { this.statements = statements; }
     accept<R>(visitor: StmtVisitor<R>): R { return visitor.visitBlockStmt(this); }
+}
+
+export class Class implements Stmt {
+    name: Token;
+    // methods to be added later if needed
+    constructor(name: Token) {
+        this.name = name;
+    }
+    accept<R>(visitor: StmtVisitor<R>): R { return visitor.visitClassStmt(this); }
+}
+
+export class Get implements Expr {
+    object: Expr;
+    name: Token;
+    constructor(object: Expr, name: Token) {
+        this.object = object;
+        this.name = name;
+    }
+    accept<R>(visitor: ExprVisitor<R>): R { return visitor.visitGetExpr(this); }
+}
+
+export class Set implements Expr {
+    object: Expr;
+    name: Token;
+    value: Expr;
+    constructor(object: Expr, name: Token, value: Expr) {
+        this.object = object;
+        this.name = name;
+        this.value = value;
+    }
+    accept<R>(visitor: ExprVisitor<R>): R { return visitor.visitSetExpr(this); }
+}
+
+export class This implements Expr {
+    keyword: Token;
+    constructor(keyword: Token) { this.keyword = keyword; }
+    accept<R>(visitor: ExprVisitor<R>): R { return visitor.visitThisExpr(this); }
 }
 
 export class Expression implements Stmt {

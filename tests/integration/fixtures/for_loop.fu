@@ -1,0 +1,15 @@
+// For loop test
+var sum = 0;
+for (var i = 0; i < 5; i = i + 1) {
+    sum = sum + i;
+}
+print sum; // Expect 10
+
+// For loop without initializer
+var j = 0;
+for (; j < 3; j = j + 1) {
+    print j;
+}
+
+// For loop infinite (break not supported yet, so we use return inside function or just limit iteration manually if we could)
+// Simplified test for now

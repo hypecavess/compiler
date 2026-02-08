@@ -1,8 +1,15 @@
 {
-  "name": "compiler",
+  "name": "@hypecavess/compiler",
   "version": "0.1.0",
   "description": "The Fradual Compiler by HypeCaves",
   "main": "dist/main.js",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hypecavess/compiler.git"
+  },
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  },
   "bin": {
     "fradual": "./bin/fradual"
   },
