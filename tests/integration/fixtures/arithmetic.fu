@@ -1,0 +1,8 @@
+// Arithmetic operations
+var a = 10;
+var b = 5;
+print a + b;  // 15
+print a - b;  // 5
+print a * b;  // 50
+print a / b;  // 2
+print -a;     // -10

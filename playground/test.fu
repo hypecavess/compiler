@@ -1,0 +1,14 @@
+var a = 1;
+print a;
+var b = 2;
+print a + b;
+
+if (a < 5) {
+  print "a is less than 5";
+}
+
+var i = 0;
+while (i < 3) {
+  print i;
+  i = i + 1;
+}

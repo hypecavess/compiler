@@ -1,0 +1,21 @@
+var global = "global";
+{
+  var local = "local";
+  print global; 
+  print local;
+  
+  var global = "shadowed"; 
+  print global;
+}
+print global;
+
+fun scopeTest() {
+  var a = "first";
+  {
+    var a = "second";
+    print a;
+  }
+  print a;
+}
+
+scopeTest();

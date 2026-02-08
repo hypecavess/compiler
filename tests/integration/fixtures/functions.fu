@@ -1,0 +1,18 @@
+// Function declaration
+fun greet(name) {
+    print "Hello, " + name + "!";
+}
+greet("World");
+
+// Return value
+fun add(a, b) {
+    return a + b;
+}
+print add(2, 3);
+
+// Recursive function
+fun factorial(n) {
+    if (n <= 1) return 1;
+    return n * factorial(n - 1);
+}
+print factorial(5);

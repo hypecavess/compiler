@@ -1,0 +1,31 @@
+// Control Flow: If/Else, While Loops, Logic
+
+var score = 85;
+
+if (score >= 90) {
+    print "Grade: A";
+} else {
+    if (score >= 80) {
+        print "Grade: B";
+    } else {
+        print "Grade: C or below";
+    }
+}
+
+print "Counting down:";
+var count = 3;
+while (count > 0) {
+    print count;
+    count = count - 1;
+}
+print "Liftoff!";
+
+print "Logical Operators:";
+var isRaining = true;
+var hasUmbrella = false;
+
+if (isRaining and !hasUmbrella) {
+    print "You will get wet!";
+} else {
+    print "You are safe.";
+}

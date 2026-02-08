@@ -1,0 +1,11 @@
+// Variable declaration and assignment
+var x = 1;
+print x;
+x = 2;
+print x;
+
+var y;
+print y;  // nil
+
+var z = "hello";
+print z;

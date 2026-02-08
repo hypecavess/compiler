@@ -1,0 +1,29 @@
+// Scope and Globals
+
+var globalVar = "global";
+
+fun showGlobal() {
+    print globalVar;
+}
+
+print "Global Scope:";
+showGlobal();
+
+// Block Scope
+print "Block Scope:";
+{
+    var localVar = "local";
+    print localVar;
+    print globalVar;
+}
+
+// Global Counter
+var counter = 0;
+fun increment() {
+    counter = counter + 1;
+    return counter;
+}
+
+print "Counter:";
+print increment();
+print increment();

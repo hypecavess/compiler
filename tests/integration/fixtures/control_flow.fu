@@ -1,0 +1,16 @@
+// If-else
+if (true) print "if works";
+if (false) print "should not print"; else print "else works";
+
+// While loop
+var i = 0;
+while (i < 3) {
+    print i;
+    i = i + 1;
+}
+
+// Logical operators
+print true and true;
+print true and false;
+print false or true;
+print false or false;

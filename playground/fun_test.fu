@@ -1,0 +1,14 @@
+fun greet(name) {
+  print "Hello";
+  print name;
+}
+
+print "Start";
+greet("Fradual");
+print "End";
+
+fun add(a, b) {
+  return a + b;
+}
+
+print add(10, 20);

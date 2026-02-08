@@ -1,0 +1,20 @@
+// Basics: Variables, Math, Printing
+
+var name = "Nothinger";
+print "Hello, " + name + "!";
+
+var a = 10;
+var b = 20;
+var sum = a + b;
+
+print "a: ";
+print a;
+print "b: ";
+print b;
+print "Sum: ";
+print sum;
+
+print "Math Operations:";
+print a * b;
+print b / a;
+print b - a;
