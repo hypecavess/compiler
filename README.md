@@ -1,14 +1,20 @@
 <div align="center">
-  <img src="assets/compiler-banner.png" alt="Compiler Banner" width="100%">
-  
-  <br />
-  <br />
-  <br />
+<picture>
+  <img
+    alt="Compiler Banner"
+    src="assets/compiler-banner.png"
+    width="100%"
+  />
+</picture>
 
-  <a href="https://nothingerr.com">
+<br />
+<br />
+<br />
+
+  <a href="https://github.com/hypecavess">
     <img alt="By HypeCaves" src="https://img.shields.io/badge/BY%20HYPECAVESS-000000.svg?style=for-the-badge&labelColor=000">
   </a>
-  <a href="https://nothingerr.com/@hypecaves">
+  <a href="https://nothingerr.com/">
     <img alt="Verified by Nothinger" src="https://img.shields.io/badge/Verified%20by%20Nothinger-000000.svg?style=for-the-badge&labelColor=000">
   </a>
   <a href="LICENSE">
@@ -17,6 +23,7 @@
   <a href="https://www.typescriptlang.org/">
     <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-007ACC.svg?style=for-the-badge&logo=typescript&logoColor=white&labelColor=000">
   </a>
+
 </div>
 
 <br />
