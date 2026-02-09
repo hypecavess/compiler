@@ -4,7 +4,7 @@ This guide is for developers who want to contribute to the **Compiler** project 
 
 ## Prerequisites
 
-- **Node.js**: v18 or tighter
+- **Node.js**: v18 or higher
 - **npm**: v9 or higher
 - **Git**
 

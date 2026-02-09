@@ -8,9 +8,6 @@ p.second = 2;
 print p.first + p.second; // Expect 3
 
 class Scone {
-  topping(first, second) {
-    print "scone with " + first + " and " + second;
-  }
 }
 
 // Methods not implemented yet, so we can't test them.

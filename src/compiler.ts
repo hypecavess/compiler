@@ -128,7 +128,6 @@ export class Compiler implements Stmt.StmtVisitor<void>, Expr.ExprVisitor<void> 
         this.emitConstant(compiler.function);
         const nameConstant = this.currentChunk().addConstant(stmt.name.lexeme);
         this.emitBytes(OpCode.OP_DEFINE_GLOBAL, nameConstant);
-        this.emitBytes(OpCode.OP_DEFINE_GLOBAL, nameConstant);
     }
 
     visitClassStmt(stmt: Stmt.Class): void {
@@ -359,8 +358,8 @@ export class Compiler implements Stmt.StmtVisitor<void>, Expr.ExprVisitor<void> 
     }
 
     visitSetExpr(expr: Expr.Set): void {
-        this.evaluate(expr.value);
         this.evaluate(expr.object);
+        this.evaluate(expr.value);
         const name = this.currentChunk().addConstant(expr.name.lexeme);
         this.emitBytes(OpCode.OP_SET_PROPERTY, name);
     }

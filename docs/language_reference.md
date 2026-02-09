@@ -155,3 +155,34 @@ var global = "global";
 The language includes a small standard library of native functions implemented directly in the VM.
 
 *   `clock()`: Returns the number of seconds since the program started. Useful for benchmarking.
+
+## 8. Classes
+
+Fradual supports basic object-oriented programming with classes.
+
+### Class Declaration
+Classes are declared using the `class` keyword.
+```javascript
+class Person {
+}
+```
+
+### Instantiation
+Create an instance by calling the class like a function.
+```javascript
+var p = Person();
+```
+
+### Fields
+Instances can have dynamic fields that are accessed and assigned using dot notation.
+```javascript
+var dog = Dog();
+dog.name = "Buddy";
+dog.age = 3;
+
+print dog.name; // "Buddy"
+print dog.age;  // 3
+```
+
+> **Note:** Class methods are not yet supported. Only field access is available in the current version.
+
