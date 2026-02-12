@@ -1,4 +1,4 @@
-import { Token, LiteralType } from "./token";
+import { Token, LiteralType } from './token.js';
 
 export interface Expr {
     accept<R>(visitor: ExprVisitor<R>): R;
@@ -16,6 +16,9 @@ export interface ExprVisitor<R> {
     visitGetExpr(expr: Get): R;
     visitSetExpr(expr: Set): R;
     visitThisExpr(expr: This): R;
+    visitArrayLiteralExpr(expr: ArrayLiteral): R;
+    visitIndexGetExpr(expr: IndexGet): R;
+    visitIndexSetExpr(expr: IndexSet): R;
 }
 
 export class Call implements Expr {
@@ -27,7 +30,9 @@ export class Call implements Expr {
         this.paren = paren;
         this.args = args;
     }
-    accept<R>(visitor: ExprVisitor<R>): R { return visitor.visitCallExpr(this); }
+    accept<R>(visitor: ExprVisitor<R>): R {
+        return visitor.visitCallExpr(this);
+    }
 }
 
 export class Binary implements Expr {
@@ -39,7 +44,9 @@ export class Binary implements Expr {
         this.operator = operator;
         this.right = right;
     }
-    accept<R>(visitor: ExprVisitor<R>): R { return visitor.visitBinaryExpr(this); }
+    accept<R>(visitor: ExprVisitor<R>): R {
+        return visitor.visitBinaryExpr(this);
+    }
 }
 
 export class Logical implements Expr {
@@ -51,19 +58,29 @@ export class Logical implements Expr {
         this.operator = operator;
         this.right = right;
     }
-    accept<R>(visitor: ExprVisitor<R>): R { return visitor.visitLogicalExpr(this); }
+    accept<R>(visitor: ExprVisitor<R>): R {
+        return visitor.visitLogicalExpr(this);
+    }
 }
 
 export class Grouping implements Expr {
     expression: Expr;
-    constructor(expression: Expr) { this.expression = expression; }
-    accept<R>(visitor: ExprVisitor<R>): R { return visitor.visitGroupingExpr(this); }
+    constructor(expression: Expr) {
+        this.expression = expression;
+    }
+    accept<R>(visitor: ExprVisitor<R>): R {
+        return visitor.visitGroupingExpr(this);
+    }
 }
 
 export class Literal implements Expr {
     value: LiteralType;
-    constructor(value: LiteralType) { this.value = value; }
-    accept<R>(visitor: ExprVisitor<R>): R { return visitor.visitLiteralExpr(this); }
+    constructor(value: LiteralType) {
+        this.value = value;
+    }
+    accept<R>(visitor: ExprVisitor<R>): R {
+        return visitor.visitLiteralExpr(this);
+    }
 }
 
 export class Unary implements Expr {
@@ -73,13 +90,19 @@ export class Unary implements Expr {
         this.operator = operator;
         this.right = right;
     }
-    accept<R>(visitor: ExprVisitor<R>): R { return visitor.visitUnaryExpr(this); }
+    accept<R>(visitor: ExprVisitor<R>): R {
+        return visitor.visitUnaryExpr(this);
+    }
 }
 
 export class Variable implements Expr {
     name: Token;
-    constructor(name: Token) { this.name = name; }
-    accept<R>(visitor: ExprVisitor<R>): R { return visitor.visitVariableExpr(this); }
+    constructor(name: Token) {
+        this.name = name;
+    }
+    accept<R>(visitor: ExprVisitor<R>): R {
+        return visitor.visitVariableExpr(this);
+    }
 }
 
 export class Assign implements Expr {
@@ -89,7 +112,9 @@ export class Assign implements Expr {
         this.name = name;
         this.value = value;
     }
-    accept<R>(visitor: ExprVisitor<R>): R { return visitor.visitAssignExpr(this); }
+    accept<R>(visitor: ExprVisitor<R>): R {
+        return visitor.visitAssignExpr(this);
+    }
 }
 
 export interface Stmt {
@@ -99,7 +124,7 @@ export interface Stmt {
 export interface StmtVisitor<R> {
     visitBlockStmt(stmt: Block): R;
     visitExpressionStmt(stmt: Expression): R;
-    visitFunctionStmt(stmt: Function): R;
+    visitFunctionStmt(stmt: FunctionStmt): R;
     visitPrintStmt(stmt: Print): R;
     visitReturnStmt(stmt: Return): R;
     visitVarStmt(stmt: Var): R;
@@ -110,8 +135,12 @@ export interface StmtVisitor<R> {
 
 export class Block implements Stmt {
     statements: Stmt[];
-    constructor(statements: Stmt[]) { this.statements = statements; }
-    accept<R>(visitor: StmtVisitor<R>): R { return visitor.visitBlockStmt(this); }
+    constructor(statements: Stmt[]) {
+        this.statements = statements;
+    }
+    accept<R>(visitor: StmtVisitor<R>): R {
+        return visitor.visitBlockStmt(this);
+    }
 }
 
 export class Class implements Stmt {
@@ -120,7 +149,9 @@ export class Class implements Stmt {
     constructor(name: Token) {
         this.name = name;
     }
-    accept<R>(visitor: StmtVisitor<R>): R { return visitor.visitClassStmt(this); }
+    accept<R>(visitor: StmtVisitor<R>): R {
+        return visitor.visitClassStmt(this);
+    }
 }
 
 export class Get implements Expr {
@@ -130,7 +161,9 @@ export class Get implements Expr {
         this.object = object;
         this.name = name;
     }
-    accept<R>(visitor: ExprVisitor<R>): R { return visitor.visitGetExpr(this); }
+    accept<R>(visitor: ExprVisitor<R>): R {
+        return visitor.visitGetExpr(this);
+    }
 }
 
 export class Set implements Expr {
@@ -142,22 +175,32 @@ export class Set implements Expr {
         this.name = name;
         this.value = value;
     }
-    accept<R>(visitor: ExprVisitor<R>): R { return visitor.visitSetExpr(this); }
+    accept<R>(visitor: ExprVisitor<R>): R {
+        return visitor.visitSetExpr(this);
+    }
 }
 
 export class This implements Expr {
     keyword: Token;
-    constructor(keyword: Token) { this.keyword = keyword; }
-    accept<R>(visitor: ExprVisitor<R>): R { return visitor.visitThisExpr(this); }
+    constructor(keyword: Token) {
+        this.keyword = keyword;
+    }
+    accept<R>(visitor: ExprVisitor<R>): R {
+        return visitor.visitThisExpr(this);
+    }
 }
 
 export class Expression implements Stmt {
     expression: Expr;
-    constructor(expression: Expr) { this.expression = expression; }
-    accept<R>(visitor: StmtVisitor<R>): R { return visitor.visitExpressionStmt(this); }
+    constructor(expression: Expr) {
+        this.expression = expression;
+    }
+    accept<R>(visitor: StmtVisitor<R>): R {
+        return visitor.visitExpressionStmt(this);
+    }
 }
 
-export class Function implements Stmt {
+export class FunctionStmt implements Stmt {
     name: Token;
     params: Token[];
     body: Stmt[];
@@ -166,13 +209,19 @@ export class Function implements Stmt {
         this.params = params;
         this.body = body;
     }
-    accept<R>(visitor: StmtVisitor<R>): R { return visitor.visitFunctionStmt(this); }
+    accept<R>(visitor: StmtVisitor<R>): R {
+        return visitor.visitFunctionStmt(this);
+    }
 }
 
 export class Print implements Stmt {
     expression: Expr;
-    constructor(expression: Expr) { this.expression = expression; }
-    accept<R>(visitor: StmtVisitor<R>): R { return visitor.visitPrintStmt(this); }
+    constructor(expression: Expr) {
+        this.expression = expression;
+    }
+    accept<R>(visitor: StmtVisitor<R>): R {
+        return visitor.visitPrintStmt(this);
+    }
 }
 
 export class Return implements Stmt {
@@ -182,7 +231,9 @@ export class Return implements Stmt {
         this.keyword = keyword;
         this.value = value;
     }
-    accept<R>(visitor: StmtVisitor<R>): R { return visitor.visitReturnStmt(this); }
+    accept<R>(visitor: StmtVisitor<R>): R {
+        return visitor.visitReturnStmt(this);
+    }
 }
 
 export class Var implements Stmt {
@@ -192,7 +243,9 @@ export class Var implements Stmt {
         this.name = name;
         this.initializer = initializer;
     }
-    accept<R>(visitor: StmtVisitor<R>): R { return visitor.visitVarStmt(this); }
+    accept<R>(visitor: StmtVisitor<R>): R {
+        return visitor.visitVarStmt(this);
+    }
 }
 
 export class If implements Stmt {
@@ -204,7 +257,9 @@ export class If implements Stmt {
         this.thenBranch = thenBranch;
         this.elseBranch = elseBranch;
     }
-    accept<R>(visitor: StmtVisitor<R>): R { return visitor.visitIfStmt(this); }
+    accept<R>(visitor: StmtVisitor<R>): R {
+        return visitor.visitIfStmt(this);
+    }
 }
 
 export class While implements Stmt {
@@ -214,5 +269,43 @@ export class While implements Stmt {
         this.condition = condition;
         this.body = body;
     }
-    accept<R>(visitor: StmtVisitor<R>): R { return visitor.visitWhileStmt(this); }
+    accept<R>(visitor: StmtVisitor<R>): R {
+        return visitor.visitWhileStmt(this);
+    }
+}
+
+export class ArrayLiteral implements Expr {
+    elements: Expr[];
+    constructor(elements: Expr[]) {
+        this.elements = elements;
+    }
+    accept<R>(visitor: ExprVisitor<R>): R {
+        return visitor.visitArrayLiteralExpr(this);
+    }
+}
+
+export class IndexGet implements Expr {
+    object: Expr;
+    index: Expr;
+    constructor(object: Expr, index: Expr) {
+        this.object = object;
+        this.index = index;
+    }
+    accept<R>(visitor: ExprVisitor<R>): R {
+        return visitor.visitIndexGetExpr(this);
+    }
+}
+
+export class IndexSet implements Expr {
+    object: Expr;
+    index: Expr;
+    value: Expr;
+    constructor(object: Expr, index: Expr, value: Expr) {
+        this.object = object;
+        this.index = index;
+        this.value = value;
+    }
+    accept<R>(visitor: ExprVisitor<R>): R {
+        return visitor.visitIndexSetExpr(this);
+    }
 }

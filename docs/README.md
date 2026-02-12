@@ -1,17 +1,17 @@
 # Documentation Index
 
-Welcome to the **Compiler** documentation. Here you will find detailed guides on how to use the language, understand its internals, and contribute to the project.
+Welcome to the **Fradual Compiler** documentation. Here you will find detailed guides on how to use the language, understand its internals, and contribute to the project.
 
 ## 📚 Guides
 
 - **[Language Reference](language_reference.md)**
-  The definitive guide to the Fradual programming language. syntax, data types, operators, and functions.
-  
+  The definitive guide to the Fradual programming language — syntax, data types, operators, control flow, functions, closures, arrays, classes, and native functions.
+
 - **[Architecture & Internals](architecture.md)**
-  A deep dive into how the compiler and virtual machine work under the hood. Learn about the pipeline, bytecode instructions, and the stack-based architecture.
+  A deep dive into the compiler pipeline: lexer, parser, bytecode compiler, stack-based VM, upvalue system, the complete 35-opcode instruction set, and known limitations.
 
 - **[Development Guide](development.md)**
-  Everything you need to know to build, test, and contribute to the project. Setup instructions, testing strategies, and project structure.
+  Everything you need to build, test, debug, and contribute — setup instructions, testing strategies, debugging tips, project structure, and security limits.
 
 ## 🔗 Quick Links
 

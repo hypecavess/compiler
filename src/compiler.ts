@@ -1,31 +1,45 @@
-import * as Stmt from "./ast";
-import * as Expr from "./ast";
-import { Chunk, OpCode } from "./chunk";
-import { Token, TokenType } from "./token";
-import { ObjFunction } from "./object";
+// Dual import for semantic separation: Stmt.X for statements, Expr.X for expressions
+import * as Stmt from './ast.js';
+import * as Expr from './ast.js';
+import { Chunk, OpCode } from './chunk.js';
+import { Token, TokenType } from './token.js';
+import { ObjFunction, Value } from './object.js';
 
 enum FunctionType {
     TYPE_SCRIPT,
-    TYPE_FUNCTION
+    TYPE_FUNCTION,
 }
 
 interface Local {
     name: Token;
     depth: number;
+    isCaptured: boolean;
+}
+
+interface Upvalue {
+    index: number;
+    isLocal: boolean;
 }
 
 export class Compiler implements Stmt.StmtVisitor<void>, Expr.ExprVisitor<void> {
+    private enclosing: Compiler | null = null;
     private function: ObjFunction;
     private type: FunctionType;
     private locals: Local[] = [];
+    private upvalues: Upvalue[] = [];
     private scopeDepth: number = 0;
 
-    constructor(type: FunctionType = FunctionType.TYPE_SCRIPT) {
+    constructor(type: FunctionType = FunctionType.TYPE_SCRIPT, enclosing: Compiler | null = null) {
+        this.enclosing = enclosing;
         this.type = type;
-        this.function = new ObjFunction(type === FunctionType.TYPE_SCRIPT ? null : "");
+        this.function = new ObjFunction(type === FunctionType.TYPE_SCRIPT ? null : '');
 
         // Claim stack slot 0 for existing function/script (receiver)
-        this.locals.push({ name: new Token(TokenType.IDENTIFIER, "", null, 0), depth: 0 });
+        this.locals.push({
+            name: new Token(TokenType.IDENTIFIER, '', null, 0),
+            depth: 0,
+            isCaptured: false,
+        });
     }
 
     compile(statements: Stmt.Stmt[]): ObjFunction {
@@ -33,6 +47,7 @@ export class Compiler implements Stmt.StmtVisitor<void>, Expr.ExprVisitor<void> 
             this.execute(statement);
         }
         this.emitReturn();
+        this.function.upvalueCount = this.upvalues.length;
         return this.function;
     }
 
@@ -48,8 +63,8 @@ export class Compiler implements Stmt.StmtVisitor<void>, Expr.ExprVisitor<void> 
         return this.function.chunk;
     }
 
-    private emitByte(byte: number) {
-        this.currentChunk().write(byte, 0);
+    private emitByte(byte: number, line: number = 0) {
+        this.currentChunk().write(byte, line);
     }
 
     private emitBytes(byte1: number, byte2: number) {
@@ -57,7 +72,7 @@ export class Compiler implements Stmt.StmtVisitor<void>, Expr.ExprVisitor<void> 
         this.emitByte(byte2);
     }
 
-    private emitConstant(value: any) {
+    private emitConstant(value: Value) {
         const constant = this.currentChunk().addConstant(value);
         this.emitBytes(OpCode.OP_CONSTANT, constant);
     }
@@ -74,15 +89,23 @@ export class Compiler implements Stmt.StmtVisitor<void>, Expr.ExprVisitor<void> 
     private endScope() {
         this.scopeDepth--;
         // Pop locals from stack
-        while (this.locals.length > 0 && this.locals[this.locals.length - 1].depth > this.scopeDepth) {
-            this.emitByte(OpCode.OP_POP);
-            this.locals.pop();
+        while (this.locals.length > 0) {
+            const top = this.locals[this.locals.length - 1];
+            if (!top || top.depth <= this.scopeDepth) break;
+
+            const local = this.locals.pop();
+            if (local && local.isCaptured) {
+                this.emitByte(OpCode.OP_CLOSE_UPVALUE);
+            } else {
+                this.emitByte(OpCode.OP_POP);
+            }
         }
     }
 
     private resolveLocal(name: Token): number {
         for (let i = this.locals.length - 1; i >= 0; i--) {
             const local = this.locals[i];
+            if (!local) continue;
             if (local.name.lexeme === name.lexeme) {
                 if (local.depth === -1) {
                     console.error("Can't read local variable in its own initializer.");
@@ -93,22 +116,55 @@ export class Compiler implements Stmt.StmtVisitor<void>, Expr.ExprVisitor<void> 
         return -1;
     }
 
+    private resolveUpvalue(name: Token): number {
+        if (this.enclosing === null) return -1;
+
+        const local = this.enclosing.resolveLocal(name);
+        if (local !== -1) {
+            if (this.enclosing.locals[local]) {
+                this.enclosing.locals[local]!.isCaptured = true;
+            }
+            return this.addUpvalue(local, true);
+        }
+
+        const upvalue = this.enclosing.resolveUpvalue(name);
+        if (upvalue !== -1) {
+            return this.addUpvalue(upvalue, false);
+        }
+
+        return -1;
+    }
+
+    private addUpvalue(index: number, isLocal: boolean): number {
+        for (let i = 0; i < this.upvalues.length; i++) {
+            const upvalue = this.upvalues[i];
+            if (!upvalue) continue;
+            if (upvalue.index === index && upvalue.isLocal === isLocal) {
+                return i;
+            }
+        }
+
+        this.upvalues.push({ index, isLocal });
+        return this.upvalues.length - 1;
+    }
+
     private addLocal(name: Token) {
         if (this.locals.length === 256) {
-            console.error("Too many local variables in function.");
+            console.error('Too many local variables in function.');
             return;
         }
-        this.locals.push({ name: name, depth: -1 }); // -1 means uninitialized
+        // console.error(`Adding local '${name.lexeme}'`);
+        this.locals.push({ name: name, depth: -1, isCaptured: false }); // -1 means uninitialized
     }
 
     private markInitialized() {
         if (this.scopeDepth === 0) return;
-        this.locals[this.locals.length - 1].depth = this.scopeDepth;
+        const local = this.locals[this.locals.length - 1];
+        if (local) local.depth = this.scopeDepth;
     }
 
-    visitFunctionStmt(stmt: Stmt.Function): void {
-
-        const compiler = new Compiler(FunctionType.TYPE_FUNCTION);
+    visitFunctionStmt(stmt: Stmt.FunctionStmt): void {
+        const compiler = new Compiler(FunctionType.TYPE_FUNCTION, this); // Pass enclosing compiler
         compiler.function.name = stmt.name.lexeme;
         compiler.function.arity = stmt.params.length;
 
@@ -125,9 +181,21 @@ export class Compiler implements Stmt.StmtVisitor<void>, Expr.ExprVisitor<void> 
 
         compiler.emitReturn();
 
-        this.emitConstant(compiler.function);
-        const nameConstant = this.currentChunk().addConstant(stmt.name.lexeme);
-        this.emitBytes(OpCode.OP_DEFINE_GLOBAL, nameConstant);
+        const constant = this.currentChunk().addConstant(compiler.function);
+        this.emitBytes(OpCode.OP_CLOSURE, constant);
+
+        for (const upvalue of compiler.upvalues) {
+            this.emitByte(upvalue.isLocal ? 1 : 0);
+            this.emitByte(upvalue.index);
+        }
+
+        if (this.scopeDepth > 0) {
+            this.addLocal(stmt.name);
+            this.markInitialized();
+        } else {
+            const nameConstant = this.currentChunk().addConstant(stmt.name.lexeme);
+            this.emitBytes(OpCode.OP_DEFINE_GLOBAL, nameConstant);
+        }
     }
 
     visitClassStmt(stmt: Stmt.Class): void {
@@ -180,9 +248,10 @@ export class Compiler implements Stmt.StmtVisitor<void>, Expr.ExprVisitor<void> 
         if (this.scopeDepth > 0) {
             for (let i = this.locals.length - 1; i >= 0; i--) {
                 const local = this.locals[i];
+                if (!local) continue;
                 if (local.depth !== -1 && local.depth < this.scopeDepth) break;
                 if (local.name.lexeme === stmt.name.lexeme) {
-                    console.error("Already a variable with this name in this scope.");
+                    console.error('Already a variable with this name in this scope.');
                 }
             }
             this.addLocal(stmt.name);
@@ -252,7 +321,7 @@ export class Compiler implements Stmt.StmtVisitor<void>, Expr.ExprVisitor<void> 
     private emitLoop(loopStart: number) {
         this.emitByte(OpCode.OP_LOOP);
         const offset = this.currentChunk().code.length - loopStart + 2;
-        if (offset > 65535) throw new Error("Loop body too large.");
+        if (offset > 65535) throw new Error('Loop body too large.');
         this.emitByte((offset >> 8) & 0xff);
         this.emitByte(offset & 0xff);
     }
@@ -266,7 +335,7 @@ export class Compiler implements Stmt.StmtVisitor<void>, Expr.ExprVisitor<void> 
 
     private patchJump(offset: number) {
         const jump = this.currentChunk().code.length - offset - 2;
-        if (jump > 65535) throw new Error("Too much code to jump over.");
+        if (jump > 65535) throw new Error('Too much code to jump over.');
         this.currentChunk().code[offset] = (jump >> 8) & 0xff;
         this.currentChunk().code[offset + 1] = jump & 0xff;
     }
@@ -275,16 +344,36 @@ export class Compiler implements Stmt.StmtVisitor<void>, Expr.ExprVisitor<void> 
         this.evaluate(expr.left);
         this.evaluate(expr.right);
         switch (expr.operator.type) {
-            case TokenType.BANG_EQUAL: this.emitBytes(OpCode.OP_EQUAL, OpCode.OP_NOT); break;
-            case TokenType.EQUAL_EQUAL: this.emitByte(OpCode.OP_EQUAL); break;
-            case TokenType.GREATER: this.emitByte(OpCode.OP_GREATER); break;
-            case TokenType.GREATER_EQUAL: this.emitBytes(OpCode.OP_LESS, OpCode.OP_NOT); break;
-            case TokenType.LESS: this.emitByte(OpCode.OP_LESS); break;
-            case TokenType.LESS_EQUAL: this.emitBytes(OpCode.OP_GREATER, OpCode.OP_NOT); break;
-            case TokenType.PLUS: this.emitByte(OpCode.OP_ADD); break;
-            case TokenType.MINUS: this.emitByte(OpCode.OP_SUBTRACT); break;
-            case TokenType.STAR: this.emitByte(OpCode.OP_MULTIPLY); break;
-            case TokenType.SLASH: this.emitByte(OpCode.OP_DIVIDE); break;
+            case TokenType.BANG_EQUAL:
+                this.emitBytes(OpCode.OP_EQUAL, OpCode.OP_NOT);
+                break;
+            case TokenType.EQUAL_EQUAL:
+                this.emitByte(OpCode.OP_EQUAL);
+                break;
+            case TokenType.GREATER:
+                this.emitByte(OpCode.OP_GREATER);
+                break;
+            case TokenType.GREATER_EQUAL:
+                this.emitBytes(OpCode.OP_LESS, OpCode.OP_NOT);
+                break;
+            case TokenType.LESS:
+                this.emitByte(OpCode.OP_LESS);
+                break;
+            case TokenType.LESS_EQUAL:
+                this.emitBytes(OpCode.OP_GREATER, OpCode.OP_NOT);
+                break;
+            case TokenType.PLUS:
+                this.emitByte(OpCode.OP_ADD);
+                break;
+            case TokenType.MINUS:
+                this.emitByte(OpCode.OP_SUBTRACT);
+                break;
+            case TokenType.STAR:
+                this.emitByte(OpCode.OP_MULTIPLY);
+                break;
+            case TokenType.SLASH:
+                this.emitByte(OpCode.OP_DIVIDE);
+                break;
         }
     }
 
@@ -294,28 +383,45 @@ export class Compiler implements Stmt.StmtVisitor<void>, Expr.ExprVisitor<void> 
 
     visitLiteralExpr(expr: Expr.Literal): void {
         switch (expr.value) {
-            case null: this.emitByte(OpCode.OP_NIL); break;
-            case true: this.emitByte(OpCode.OP_TRUE); break;
-            case false: this.emitByte(OpCode.OP_FALSE); break;
-            default: this.emitConstant(expr.value); break;
+            case null:
+                this.emitByte(OpCode.OP_NIL);
+                break;
+            case true:
+                this.emitByte(OpCode.OP_TRUE);
+                break;
+            case false:
+                this.emitByte(OpCode.OP_FALSE);
+                break;
+            default:
+                this.emitConstant(expr.value);
+                break;
         }
     }
 
     visitUnaryExpr(expr: Expr.Unary): void {
         this.evaluate(expr.right);
         switch (expr.operator.type) {
-            case TokenType.MINUS: this.emitByte(OpCode.OP_NEGATE); break;
-            case TokenType.BANG: this.emitByte(OpCode.OP_NOT); break;
+            case TokenType.MINUS:
+                this.emitByte(OpCode.OP_NEGATE);
+                break;
+            case TokenType.BANG:
+                this.emitByte(OpCode.OP_NOT);
+                break;
         }
     }
 
     visitVariableExpr(expr: Expr.Variable): void {
-        const arg = this.resolveLocal(expr.name);
+        let arg = this.resolveLocal(expr.name);
         if (arg !== -1) {
             this.emitBytes(OpCode.OP_GET_LOCAL, arg);
         } else {
-            const constant = this.currentChunk().addConstant(expr.name.lexeme);
-            this.emitBytes(OpCode.OP_GET_GLOBAL, constant);
+            arg = this.resolveUpvalue(expr.name);
+            if (arg !== -1) {
+                this.emitBytes(OpCode.OP_GET_UPVALUE, arg);
+            } else {
+                const constant = this.currentChunk().addConstant(expr.name.lexeme);
+                this.emitBytes(OpCode.OP_GET_GLOBAL, constant);
+            }
         }
     }
 
@@ -342,12 +448,17 @@ export class Compiler implements Stmt.StmtVisitor<void>, Expr.ExprVisitor<void> 
 
     visitAssignExpr(expr: Expr.Assign): void {
         this.evaluate(expr.value);
-        const arg = this.resolveLocal(expr.name);
+        let arg = this.resolveLocal(expr.name);
         if (arg !== -1) {
             this.emitBytes(OpCode.OP_SET_LOCAL, arg);
         } else {
-            const constant = this.currentChunk().addConstant(expr.name.lexeme);
-            this.emitBytes(OpCode.OP_SET_GLOBAL, constant);
+            arg = this.resolveUpvalue(expr.name);
+            if (arg !== -1) {
+                this.emitBytes(OpCode.OP_SET_UPVALUE, arg);
+            } else {
+                const constant = this.currentChunk().addConstant(expr.name.lexeme);
+                this.emitBytes(OpCode.OP_SET_GLOBAL, constant);
+            }
         }
     }
 
@@ -364,7 +475,7 @@ export class Compiler implements Stmt.StmtVisitor<void>, Expr.ExprVisitor<void> 
         this.emitBytes(OpCode.OP_SET_PROPERTY, name);
     }
 
-    visitThisExpr(expr: Expr.This): void {
+    visitThisExpr(_expr: Expr.This): void {
         // For now, treat 'this' as a variable.
         // In a real implementation we would need to ensure we are inside a method.
         // And 'this' should be at stack slot 0 (which we Reserved in constructor but currently is generic).
@@ -382,5 +493,26 @@ export class Compiler implements Stmt.StmtVisitor<void>, Expr.ExprVisitor<void> 
         console.error("'this' not fully supported yet (no methods).");
         // But to satisfy the visitor:
         this.emitByte(OpCode.OP_NIL);
+    }
+
+    visitArrayLiteralExpr(expr: Expr.ArrayLiteral): void {
+        for (const element of expr.elements) {
+            this.evaluate(element);
+        }
+        this.emitByte(OpCode.OP_ARRAY);
+        this.emitByte(expr.elements.length);
+    }
+
+    visitIndexGetExpr(expr: Expr.IndexGet): void {
+        this.evaluate(expr.object);
+        this.evaluate(expr.index);
+        this.emitByte(OpCode.OP_INDEX_GET);
+    }
+
+    visitIndexSetExpr(expr: Expr.IndexSet): void {
+        this.evaluate(expr.object);
+        this.evaluate(expr.index);
+        this.evaluate(expr.value);
+        this.emitByte(OpCode.OP_INDEX_SET);
     }
 }

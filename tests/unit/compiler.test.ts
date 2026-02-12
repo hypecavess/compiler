@@ -1,5 +1,5 @@
-import { compile } from '../helpers';
-import { OpCode } from '../../src/chunk';
+import { compile, run } from '../helpers.js';
+import { OpCode } from '../../src/chunk.js';
 
 describe('Compiler', () => {
     describe('Constants', () => {

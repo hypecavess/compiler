@@ -1,5 +1,5 @@
-import { run } from '../helpers';
-import { InterpretResult } from '../../src/vm';
+import { run } from '../helpers.js';
+import { InterpretResult } from '../../src/vm.js';
 
 describe('VM', () => {
     describe('Arithmetic', () => {

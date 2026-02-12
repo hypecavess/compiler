@@ -1,4 +1,4 @@
-import { Token, TokenType, LiteralType } from "./token";
+import { Token, TokenType, LiteralType } from './token.js';
 
 export class Lexer {
     private source: string;
@@ -8,22 +8,22 @@ export class Lexer {
     private line: number = 1;
 
     private static keywords: Record<string, TokenType> = {
-        "and": TokenType.AND,
-        "class": TokenType.CLASS,
-        "else": TokenType.ELSE,
-        "false": TokenType.FALSE,
-        "for": TokenType.FOR,
-        "fun": TokenType.FUN,
-        "if": TokenType.IF,
-        "nil": TokenType.NIL,
-        "or": TokenType.OR,
-        "print": TokenType.PRINT,
-        "return": TokenType.RETURN,
-        "super": TokenType.SUPER,
-        "this": TokenType.THIS,
-        "true": TokenType.TRUE,
-        "var": TokenType.VAR,
-        "while": TokenType.WHILE,
+        and: TokenType.AND,
+        class: TokenType.CLASS,
+        else: TokenType.ELSE,
+        false: TokenType.FALSE,
+        for: TokenType.FOR,
+        fun: TokenType.FUN,
+        if: TokenType.IF,
+        nil: TokenType.NIL,
+        or: TokenType.OR,
+        print: TokenType.PRINT,
+        return: TokenType.RETURN,
+        super: TokenType.SUPER,
+        this: TokenType.THIS,
+        true: TokenType.TRUE,
+        var: TokenType.VAR,
+        while: TokenType.WHILE,
     };
 
     constructor(source: string) {
@@ -37,23 +37,49 @@ export class Lexer {
             this.scanToken();
         }
 
-        this.tokens.push(new Token(TokenType.EOF, "", null, this.line));
+        this.tokens.push(new Token(TokenType.EOF, '', null, this.line));
         return this.tokens;
     }
 
     private scanToken(): void {
         const c = this.advance();
         switch (c) {
-            case '(': this.addToken(TokenType.LEFT_PAREN); break;
-            case ')': this.addToken(TokenType.RIGHT_PAREN); break;
-            case '{': this.addToken(TokenType.LEFT_BRACE); break;
-            case '}': this.addToken(TokenType.RIGHT_BRACE); break;
-            case ',': this.addToken(TokenType.COMMA); break;
-            case '.': this.addToken(TokenType.DOT); break;
-            case '-': this.addToken(TokenType.MINUS); break;
-            case '+': this.addToken(TokenType.PLUS); break;
-            case ';': this.addToken(TokenType.SEMICOLON); break;
-            case '*': this.addToken(TokenType.STAR); break;
+            case '(':
+                this.addToken(TokenType.LEFT_PAREN);
+                break;
+            case ')':
+                this.addToken(TokenType.RIGHT_PAREN);
+                break;
+            case '{':
+                this.addToken(TokenType.LEFT_BRACE);
+                break;
+            case '}':
+                this.addToken(TokenType.RIGHT_BRACE);
+                break;
+            case '[':
+                this.addToken(TokenType.LEFT_BRACKET);
+                break;
+            case ']':
+                this.addToken(TokenType.RIGHT_BRACKET);
+                break;
+            case ',':
+                this.addToken(TokenType.COMMA);
+                break;
+            case '.':
+                this.addToken(TokenType.DOT);
+                break;
+            case '-':
+                this.addToken(TokenType.MINUS);
+                break;
+            case '+':
+                this.addToken(TokenType.PLUS);
+                break;
+            case ';':
+                this.addToken(TokenType.SEMICOLON);
+                break;
+            case '*':
+                this.addToken(TokenType.STAR);
+                break;
             case '!':
                 this.addToken(this.match('=') ? TokenType.BANG_EQUAL : TokenType.BANG);
                 break;
@@ -85,7 +111,9 @@ export class Lexer {
                 this.line++;
                 break;
 
-            case '"': this.string(); break;
+            case '"':
+                this.string();
+                break;
 
             default:
                 if (this.isDigit(c)) {
@@ -119,7 +147,10 @@ export class Lexer {
             while (this.isDigit(this.peek())) this.advance();
         }
 
-        this.addToken(TokenType.NUMBER, parseFloat(this.source.substring(this.start, this.current)));
+        this.addToken(
+            TokenType.NUMBER,
+            parseFloat(this.source.substring(this.start, this.current)),
+        );
     }
 
     private string(): void {
@@ -160,9 +191,7 @@ export class Lexer {
     }
 
     private isAlpha(c: string): boolean {
-        return (c >= 'a' && c <= 'z') ||
-            (c >= 'A' && c <= 'Z') ||
-            c === '_';
+        return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c === '_';
     }
 
     private isAlphaNumeric(c: string): boolean {

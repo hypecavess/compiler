@@ -1,4 +1,4 @@
-import { Value } from "./object";
+import { Value } from './object.js';
 
 export enum OpCode {
     OP_CONSTANT,
@@ -29,6 +29,13 @@ export enum OpCode {
     OP_CLASS,
     OP_GET_PROPERTY,
     OP_SET_PROPERTY,
+    OP_CLOSURE,
+    OP_GET_UPVALUE,
+    OP_SET_UPVALUE,
+    OP_CLOSE_UPVALUE,
+    OP_ARRAY,
+    OP_INDEX_GET,
+    OP_INDEX_SET,
 }
 
 export class Chunk {

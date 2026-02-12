@@ -1,7 +1,13 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { run } from '../helpers';
-import { InterpretResult } from '../../src/vm';
+import { run } from '../helpers.js';
+import { InterpretResult } from '../../src/vm.js';
+
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 const fixturesDir = path.join(__dirname, 'fixtures');
 
@@ -35,8 +41,13 @@ describe('Integration Tests (E2E)', () => {
             expect(output).toEqual([
                 'if works',
                 'else works',
-                '0', '1', '2',
-                'true', 'false', 'true', 'false'
+                '0',
+                '1',
+                '2',
+                'true',
+                'false',
+                'true',
+                'false',
             ]);
         });
     });
@@ -47,11 +58,7 @@ describe('Integration Tests (E2E)', () => {
             const { result, output } = run(source);
 
             expect(result).toBe(InterpretResult.OK);
-            expect(output).toEqual([
-                'Hello, World!',
-                '5',
-                '120'
-            ]);
+            expect(output).toEqual(['Hello, World!', '5', '120']);
         });
     });
 
@@ -76,7 +83,7 @@ describe('Integration Tests (E2E)', () => {
     });
 
     describe('All Fixture Files', () => {
-        const fixtures = fs.readdirSync(fixturesDir).filter(f => f.endsWith('.fu'));
+        const fixtures = fs.readdirSync(fixturesDir).filter((f) => f.endsWith('.fu'));
 
         test.each(fixtures)('%s runs without errors', (filename) => {
             const source = fs.readFileSync(path.join(fixturesDir, filename), 'utf-8');

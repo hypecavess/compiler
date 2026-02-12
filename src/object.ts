@@ -1,23 +1,23 @@
-import { Chunk } from "./chunk";
+import { Chunk } from './chunk.js';
 
-export enum ObjType {
-    OBJ_FUNCTION,
-    OBJ_NATIVE,
-    OBJ_CLASS,
-    OBJ_INSTANCE
-}
 
-export abstract class Obj {
-    type: ObjType;
-    constructor(type: ObjType) {
-        this.type = type;
-    }
-}
 
-export type Value = number | string | boolean | null | ObjFunction | ObjNative | ObjClass | ObjInstance;
+export type Value =
+    | number
+    | string
+    | boolean
+    | null
+    | ObjFunction
+    | ObjNative
+    | ObjClass
+    | ObjInstance
+    | ObjArray
+    | ObjClosure
+    | ObjUpvalue;
 
 export class ObjFunction {
     arity: number = 0;
+    upvalueCount: number = 0;
     chunk: Chunk;
     name: string | null;
 
@@ -71,5 +71,41 @@ export class ObjInstance {
 
     toString(): string {
         return `${this.class.name} instance`;
+    }
+}
+
+export class ObjArray {
+    elements: Value[] = [];
+    constructor(elements: Value[]) {
+        this.elements = elements;
+    }
+    toString(): string {
+        return `[${this.elements.join(', ')}]`;
+    }
+}
+
+export class ObjUpvalue {
+    location: number; // Index of the local variable in the stack (if open)
+    closed: Value | null = null; // The value if closed
+    next: ObjUpvalue | null = null; // Pointer to next upvalue in open upvalues list
+
+    constructor(location: number) {
+        this.location = location;
+    }
+    toString(): string {
+        return 'upvalue';
+    }
+}
+
+export class ObjClosure {
+    function: ObjFunction;
+    upvalues: ObjUpvalue[] = [];
+
+    constructor(func: ObjFunction) {
+        this.function = func;
+    }
+
+    toString(): string {
+        return this.function.toString();
     }
 }

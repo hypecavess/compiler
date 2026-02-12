@@ -99,6 +99,25 @@ To install the compiler from GitHub Packages, you need to configure your npm reg
 <br />
 
 <div align="center">
+  <h2>Quick Start & Examples</h2>
+</div>
+
+Check out the `examples/` directory for ready-to-run code samples.
+
+To run an example:
+```bash
+# If cloned locally after building:
+node dist/src/main.js examples/01_basics.fu
+
+# If installed globally:
+fradual examples/01_basics.fu
+```
+
+Explore more scripts in `examples/` to see loops, functions, and closures in action.
+
+<br />
+<br />
+<div align="center">
   <img src="assets/guide-docs.png" alt="Documentation Guide" width="50%">
   
   <br />
@@ -126,6 +145,15 @@ We warmly welcome contributions from the community to help shape the future of t
 We are actively looking for developers to help us stabilize the core, expand the standard library, and improve developer tooling. Whether you're fixing a critical bug, improving the documentation, or proposing entirely new language features, your input is invaluable. We are building something significant together, and every pull request brings us closer to a robust, production-ready tool.
 
 Please read our **[Contributing Guidelines](CONTRIBUTING.md)** and **[Code of Conduct](CODE_OF_CONDUCT.md)** before getting started.
+
+<br></br>
+<br></br>
+
+<p align="center">
+  <a href="https://github.com/hypecavess/compiler/graphs/contributors">
+    <img src="https://contrib.rocks/image?repo=hypecavess/compiler" />
+  </a>
+</p>
 
 <br />
 <br />

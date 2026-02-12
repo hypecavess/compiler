@@ -1,6 +1,6 @@
-import { parse } from '../helpers';
-import * as Expr from '../../src/ast';
-import * as Stmt from '../../src/ast';
+import { parse } from '../helpers.js';
+import * as Expr from '../../src/ast.js';
+import * as Stmt from '../../src/ast.js';
 
 describe('Parser', () => {
     describe('Literals', () => {
@@ -24,13 +24,15 @@ describe('Parser', () => {
             const trueStmts = parse('true;');
             const falseStmts = parse('false;');
 
-            expect((((trueStmts[0] as Stmt.Expression).expression) as Expr.Literal).value).toBe(true);
-            expect((((falseStmts[0] as Stmt.Expression).expression) as Expr.Literal).value).toBe(false);
+            expect(((trueStmts[0] as Stmt.Expression).expression as Expr.Literal).value).toBe(true);
+            expect(((falseStmts[0] as Stmt.Expression).expression as Expr.Literal).value).toBe(
+                false,
+            );
         });
 
         test('nil literal', () => {
             const stmts = parse('nil;');
-            const literal = ((stmts[0] as Stmt.Expression).expression) as Expr.Literal;
+            const literal = (stmts[0] as Stmt.Expression).expression as Expr.Literal;
             expect(literal.value).toBe(null);
         });
     });
@@ -111,11 +113,11 @@ describe('Parser', () => {
     describe('Functions', () => {
         test('function declaration', () => {
             const stmts = parse('fun greet(name) { print name; }');
-            const funStmt = stmts[0] as Stmt.Function;
+            const funStmt = stmts[0] as Stmt.FunctionStmt;
 
             expect(funStmt.name.lexeme).toBe('greet');
             expect(funStmt.params).toHaveLength(1);
-            expect(funStmt.params[0].lexeme).toBe('name');
+            expect(funStmt.params[0]!.lexeme).toBe('name');
             expect(funStmt.body).toHaveLength(1);
         });
 

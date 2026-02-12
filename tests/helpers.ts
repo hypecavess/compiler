@@ -1,10 +1,10 @@
-import { Lexer } from '../src/lexer';
-import { Parser } from '../src/parser';
-import { Compiler } from '../src/compiler';
-import { VM, InterpretResult } from '../src/vm';
-import { Token } from '../src/token';
-import * as Stmt from '../src/ast';
-import { ObjFunction } from '../src/object';
+import { Lexer } from '../src/lexer.js';
+import { Parser } from '../src/parser.js';
+import { Compiler } from '../src/compiler.js';
+import { VM, InterpretResult } from '../src/vm.js';
+import { Token } from '../src/token.js';
+import * as Stmt from '../src/ast.js';
+import { ObjFunction } from '../src/object.js';
 
 export function tokenize(source: string): Token[] {
     const lexer = new Lexer(source);
@@ -26,9 +26,14 @@ export function compile(source: string): ObjFunction {
 export function run(source: string): { result: InterpretResult; output: string[] } {
     const logs: string[] = [];
     const originalLog = console.log;
-    console.log = (...args: unknown[]) => {
+    const originalError = console.error;
+
+    const logFn = (...args: unknown[]) => {
         logs.push(args.map(String).join(' '));
     };
+
+    console.log = logFn;
+    console.error = logFn;
 
     try {
         const func = compile(source);
@@ -37,5 +42,6 @@ export function run(source: string): { result: InterpretResult; output: string[]
         return { result, output: logs };
     } finally {
         console.log = originalLog;
+        console.error = originalError;
     }
 }

@@ -1,31 +1,27 @@
 import * as fs from 'fs';
 import * as readline from 'readline';
-import { Lexer } from './lexer';
-import { Parser } from './parser';
-import { Compiler } from './compiler';
-import { VM, InterpretResult } from './vm';
+import { Lexer } from './lexer.js';
+import { Parser } from './parser.js';
+import { Compiler } from './compiler.js';
+import { VM, InterpretResult } from './vm.js';
 
 function run(source: string) {
     const lexer = new Lexer(source);
     const tokens = lexer.scanTokens();
 
-    // For debugging
-    // console.log(tokens);
-
     const parser = new Parser(tokens);
     const statements = parser.parse();
 
     // Stop if there was a syntax error.
-    if (statements.length === 0 && tokens.length > 1) return; // Basic check
+    if (statements.length === 0 && tokens.length > 1) return;
 
     const compiler = new Compiler();
     const function_ = compiler.compile(statements);
 
     // DEBUG: Print bytecode
-    console.log("--- BYTECODE ---");
-    const { Disassembler } = require('./debug');
-    new Disassembler().disassembleChunk(function_.chunk, "script");
-    console.log("--- END BYTECODE ---");
+    // console.log('--- BYTECODE ---');
+    // new Disassembler().disassembleChunk(function_.chunk, 'script');
+    // console.log('--- END BYTECODE ---');
 
     const vm = new VM();
     const result = vm.interpret(function_);
@@ -48,7 +44,7 @@ function runPrompt() {
     const rl = readline.createInterface({
         input: process.stdin,
         output: process.stdout,
-        prompt: '> '
+        prompt: '> ',
     });
 
     rl.prompt();
@@ -68,7 +64,7 @@ function main() {
     if (args.length > 1) {
         console.log('Usage: fradual [script]');
         process.exit(64);
-    } else if (args.length === 1) {
+    } else if (args.length === 1 && args[0]) {
         runFile(args[0]);
     } else {
         runPrompt();
