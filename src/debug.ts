@@ -4,7 +4,7 @@ export class Disassembler {
     disassembleChunk(chunk: Chunk, name: string) {
         console.log(`== ${name} ==`);
 
-        for (let offset = 0; offset < chunk.code.length;) {
+        for (let offset = 0; offset < chunk.code.length; ) {
             offset = this.disassembleInstruction(chunk, offset);
         }
     }
@@ -153,7 +153,9 @@ export class Disassembler {
             const isLocal = chunk.code[current++];
             const index = chunk.code[current++];
             const localStr = isLocal ? 'local' : 'upvalue';
-            console.log(`${(current - 2).toString().padStart(4, '0')}      |                     ${localStr} ${index}`);
+            console.log(
+                `${(current - 2).toString().padStart(4, '0')}      |                     ${localStr} ${index}`,
+            );
         }
         return current;
     }

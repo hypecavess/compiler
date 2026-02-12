@@ -1,4 +1,4 @@
-import { compile, run } from '../helpers.js';
+import { compile } from '../helpers.js';
 import { OpCode } from '../../src/chunk.js';
 
 describe('Compiler', () => {

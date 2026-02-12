@@ -88,7 +88,7 @@ export class VM {
         let frame = this.frames[this.frameCount - 1];
         if (!frame) return InterpretResult.RUNTIME_ERROR;
 
-        for (; ;) {
+        for (;;) {
             // Security: Check for timeout
             if (Date.now() - this.startTime > VM.MAX_EXECUTION_TIME_MS) {
                 console.error('Execution time limit exceeded.');
@@ -444,7 +444,9 @@ export class VM {
                     const upvalue = frame.closure.upvalues[slot];
                     if (!upvalue) return InterpretResult.RUNTIME_ERROR;
 
-                    this.push(upvalue.closed !== null ? upvalue.closed : this.stack[upvalue.location]!);
+                    this.push(
+                        upvalue.closed !== null ? upvalue.closed : this.stack[upvalue.location]!,
+                    );
                     break;
                 }
 

@@ -1,7 +1,5 @@
 import { Chunk } from './chunk.js';
 
-
-
 export type Value =
     | number
     | string

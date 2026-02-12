@@ -3,7 +3,7 @@ import { Token, TokenType } from './token.js';
 import * as Stmt from './ast.js';
 import * as Expr from './ast.js';
 
-class ParseError extends Error { }
+class ParseError extends Error {}
 
 export class Parser {
     private tokens: Token[];
