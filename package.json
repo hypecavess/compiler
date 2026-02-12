@@ -12,8 +12,14 @@
     "registry": "https://npm.pkg.github.com"
   },
   "bin": {
-    "fradual": "./bin/fradual"
+    "fradual": "./bin/fradual.js"
   },
+  "files": [
+    "dist/",
+    "bin/",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "build": "tsc",
     "start": "ts-node --esm src/main.ts",
