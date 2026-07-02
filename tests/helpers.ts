@@ -36,7 +36,20 @@ export function run(source: string): { result: InterpretResult; output: string[]
     console.error = logFn;
 
     try {
-        const func = compile(source);
+        const lexer = new Lexer(source);
+        const tokens = lexer.scanTokens();
+        const parser = new Parser(tokens);
+        const statements = parser.parse();
+        if (lexer.hadError || parser.hadError) {
+            return { result: InterpretResult.COMPILE_ERROR, output: logs };
+        }
+
+        const compiler = new Compiler();
+        const func = compiler.compile(statements);
+        if (compiler.hadError) {
+            return { result: InterpretResult.COMPILE_ERROR, output: logs };
+        }
+
         const vm = new VM();
         const result = vm.interpret(func);
         return { result, output: logs };
