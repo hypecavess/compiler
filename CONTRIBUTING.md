@@ -16,16 +16,16 @@ All types of contributions are encouraged and valued. See the [Table of Contents
 
 ## I Have a Question
 
-If you want to ask a question, we assume that you have read the available [Documentation](README.md).
+If you want to ask a question, we assume that you have read the available [Documentation](docs/README.md).
 
-Before you ask a question, it is best to search for existing [Issues](/issues) that might help you. In case you have found a suitable issue and still need clarification, you can write your question in this issue. It is also advisable to search the internet for answers first.
+Before you ask a question, it is best to search for existing [Issues](https://github.com/hypecavess/compiler/issues) that might help you. In case you have found a suitable issue and still need clarification, you can write your question in this issue. It is also advisable to search the internet for answers first.
 
 ## I Want To Contribute
 
 ### Reporting Bugs
 
-- **Ensure the bug was not already reported** by searching on GitHub under [Issues](/issues).
-- If you're unable to find an open issue addressing the problem, [open a new one](/issues/new). Be sure to include a **title and clear description**, as many relevant information as possible, and a **code sample** or an **executable test case** demonstrating the expected behavior that is not occurring.
+- **Ensure the bug was not already reported** by searching on GitHub under [Issues](https://github.com/hypecavess/compiler/issues).
+- If you're unable to find an open issue addressing the problem, [open a new one](https://github.com/hypecavess/compiler/issues/new). Be sure to include a **title and clear description**, as many relevant information as possible, and a **code sample** or an **executable test case** demonstrating the expected behavior that is not occurring.
 
 ### Suggesting Enhancements
 
@@ -36,13 +36,14 @@ Before you ask a question, it is best to search for existing [Issues](/issues) t
 ### Your First Code Contribution
 
 1.  **Fork the repository** on GitHub.
-2.  **Clone your fork** locally: `git clone https://github.com/hypecavess/compiler.git`
+2.  **Clone your fork** locally: `git clone https://github.com/<your-username>/compiler.git`
 3.  **Install dependencies**: `npm install`
 4.  **Create a branch** for your feature/fix: `git checkout -b feature/amazing-feature`
 5.  **Write code and tests**. Ensure all tests pass: `npm test`
-6.  **Commit your changes** using descriptive commit messages.
-7.  **Push to your fork**: `git push origin feature/amazing-feature`
-8.  **Submit a Pull Request**!
+6.  **Run lint and type checks**: `npm run lint && npm run typecheck`
+7.  **Commit your changes** using descriptive commit messages.
+8.  **Push to your fork**: `git push origin feature/amazing-feature`
+9.  **Submit a Pull Request**!
 
 ## Styleguides
 

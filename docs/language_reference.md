@@ -38,6 +38,20 @@ var empty;         // Initialized to nil
 | **Nil** | Absence of a value | `nil` |
 | **Array** | Ordered collection of values | `[1, 2, 3]`, `["a", true, nil]` |
 
+### Strings
+
+- Strings are enclosed in **double quotes** only (`'single quotes'` are not valid).
+- **Escape sequences are not supported** — `"\n"` is the two literal characters `\` and `n`.
+- A string literal may span multiple lines; the line break becomes part of the string:
+
+```javascript
+var s = "first line
+second line";
+print s;
+// first line
+// second line
+```
+
 ### Truthiness
 
 In boolean contexts (conditions, `!`, `and`, `or`), the following values are **falsey**: `false`, `nil`, `0`, `""`. Everything else is **truthy**.
@@ -54,6 +68,7 @@ print 10 + 5;   // 15 (addition)
 print 10 - 5;   // 5  (subtraction)
 print 10 * 5;   // 50 (multiplication)
 print 10 / 5;   // 2  (division)
+print 10 / 4;   // 2.5 (no integer division)
 print -10;      // -10 (unary negation)
 ```
 
@@ -62,7 +77,9 @@ The `+` operator also concatenates strings:
 print "Hello " + "World"; // "Hello World"
 ```
 
-> ⚠️ **Type error:** Mixing types with `+` (e.g., `"age: " + 25`) causes a runtime error. Both operands must be the same type (both numbers or both strings).
+> ⚠️ **Type error:** Mixing types with `+` (e.g., `"age: " + 25`) causes a runtime error (`Operands must be two numbers or two strings.`). Both operands must be the same type (both numbers or both strings).
+
+> ⚠️ **Division edge cases:** Division follows IEEE 754 floating-point semantics — there is no division-by-zero error. `1 / 0` evaluates to `Infinity` and `0 / 0` evaluates to `NaN`.
 
 ### Comparison
 ```javascript
@@ -82,6 +99,14 @@ print "a" == "a"; // true
 print nil == nil;  // true
 print 1 == true;   // false (strict equality, no type coercion)
 ```
+
+> **Reference equality for objects:** Arrays, class instances, functions, and classes are compared **by reference**, not by contents:
+>
+> ```javascript
+> print [1] == [1]; // false (two different arrays)
+> var a = [1];
+> print a == a;     // true (same array)
+> ```
 
 ### Logical
 ```javascript
@@ -335,6 +360,17 @@ print nil;         // nil
 print [1, 2, 3];   // [1, 2, 3]
 ```
 
+Non-primitive values have a canonical representation:
+
+| Value | Output |
+|---|---|
+| Function | `<fn name>` |
+| Native function | `<native fn>` |
+| Class | the class name, e.g. `Dog` |
+| Instance | `Dog instance` |
+| Nested array | `[1, [2, 3]]` |
+| Cyclic array reference | `[...]` (cycles are detected, printing never recurses forever) |
+
 > `print` is a statement, not a function — no parentheses needed: `print x;` not `print(x)`.
 
 ---
@@ -343,9 +379,30 @@ print [1, 2, 3];   // [1, 2, 3]
 
 Fradual has no `try`/`catch` mechanism. Errors halt execution:
 
+- **Lexical errors** — detected during scanning (e.g., unexpected characters, unterminated strings)
 - **Syntax errors** — detected during parsing (e.g., missing semicolons, unmatched braces)
-- **Compile errors** — detected during compilation (e.g., too many locals, returning from top-level)
+- **Compile errors** — detected during compilation (e.g., too many locals, returning from top-level, using `this`)
 - **Runtime errors** — detected during execution (e.g., type mismatches, undefined variables, array out of bounds, stack overflow, execution timeout)
+
+If any lexical, syntax, or compile error is found, the program is **never executed**.
+
+Runtime errors report the source line and a call-stack trace:
+
+```
+Runtime Error: Undefined variable 'missing'.
+  [line 3] in someFunction()
+  [line 7] in script
+```
+
+### CLI Exit Codes
+
+| Code | Meaning |
+|---|---|
+| `0` | Success |
+| `64` | Usage error (too many arguments) |
+| `65` | Lexical, syntax, or compile error (also: source file over 1 MiB) |
+| `70` | Runtime error |
+| `74` | File could not be read |
 
 ---
 
