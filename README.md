@@ -107,7 +107,7 @@ Check out the `examples/` directory for ready-to-run code samples.
 To run an example:
 ```bash
 # If cloned locally after building:
-node dist/src/main.js examples/01_basics.fu
+node dist/main.js examples/01_basics.fu
 
 # If installed globally:
 fradual examples/01_basics.fu
