@@ -22,12 +22,21 @@ interface Upvalue {
 }
 
 export class Compiler implements Stmt.StmtVisitor<void>, Expr.ExprVisitor<void> {
+    private static readonly MAX_CONSTANTS = 256;
+    private static readonly MAX_LOCALS = 256;
+
     private enclosing: Compiler | null = null;
     private function: ObjFunction;
     private type: FunctionType;
     private locals: Local[] = [];
     private upvalues: Upvalue[] = [];
     private scopeDepth: number = 0;
+    private currentLine: number = 0;
+    readonly errors: string[] = [];
+
+    get hadError(): boolean {
+        return this.errors.length > 0;
+    }
 
     constructor(type: FunctionType = FunctionType.TYPE_SCRIPT, enclosing: Compiler | null = null) {
         this.enclosing = enclosing;
@@ -63,7 +72,13 @@ export class Compiler implements Stmt.StmtVisitor<void>, Expr.ExprVisitor<void> 
         return this.function.chunk;
     }
 
-    private emitByte(byte: number, line: number = 0) {
+    private error(message: string, line: number = this.currentLine): void {
+        const formatted = `[line ${line}] Compile Error: ${message}`;
+        this.errors.push(formatted);
+        console.error(formatted);
+    }
+
+    private emitByte(byte: number, line: number = this.currentLine) {
         this.currentChunk().write(byte, line);
     }
 
@@ -72,9 +87,23 @@ export class Compiler implements Stmt.StmtVisitor<void>, Expr.ExprVisitor<void> 
         this.emitByte(byte2);
     }
 
+    private makeConstant(value: Value): number {
+        const chunk = this.currentChunk();
+        // Reuse identical primitive constants to conserve the limited pool.
+        if (value === null || typeof value !== 'object') {
+            const existing = chunk.constants.indexOf(value);
+            if (existing !== -1) return existing;
+        }
+        const index = chunk.addConstant(value);
+        if (index >= Compiler.MAX_CONSTANTS) {
+            this.error(`Too many constants in one chunk (max ${Compiler.MAX_CONSTANTS}).`);
+            return 0;
+        }
+        return index;
+    }
+
     private emitConstant(value: Value) {
-        const constant = this.currentChunk().addConstant(value);
-        this.emitBytes(OpCode.OP_CONSTANT, constant);
+        this.emitBytes(OpCode.OP_CONSTANT, this.makeConstant(value));
     }
 
     private emitReturn() {
@@ -108,7 +137,7 @@ export class Compiler implements Stmt.StmtVisitor<void>, Expr.ExprVisitor<void> 
             if (!local) continue;
             if (local.name.lexeme === name.lexeme) {
                 if (local.depth === -1) {
-                    console.error("Can't read local variable in its own initializer.");
+                    this.error("Can't read local variable in its own initializer.", name.line);
                 }
                 return i;
             }
@@ -149,11 +178,10 @@ export class Compiler implements Stmt.StmtVisitor<void>, Expr.ExprVisitor<void> 
     }
 
     private addLocal(name: Token) {
-        if (this.locals.length === 256) {
-            console.error('Too many local variables in function.');
+        if (this.locals.length === Compiler.MAX_LOCALS) {
+            this.error('Too many local variables in function.', name.line);
             return;
         }
-        // console.error(`Adding local '${name.lexeme}'`);
         this.locals.push({ name: name, depth: -1, isCaptured: false }); // -1 means uninitialized
     }
 
@@ -164,9 +192,19 @@ export class Compiler implements Stmt.StmtVisitor<void>, Expr.ExprVisitor<void> 
     }
 
     visitFunctionStmt(stmt: Stmt.FunctionStmt): void {
+        this.currentLine = stmt.name.line;
+
+        // Declare the function name before compiling the body so that
+        // local functions can recursively refer to themselves.
+        if (this.scopeDepth > 0) {
+            this.addLocal(stmt.name);
+            this.markInitialized();
+        }
+
         const compiler = new Compiler(FunctionType.TYPE_FUNCTION, this); // Pass enclosing compiler
         compiler.function.name = stmt.name.lexeme;
         compiler.function.arity = stmt.params.length;
+        compiler.currentLine = stmt.name.line;
 
         compiler.beginScope();
         for (const param of stmt.params) {
@@ -181,7 +219,13 @@ export class Compiler implements Stmt.StmtVisitor<void>, Expr.ExprVisitor<void> 
 
         compiler.emitReturn();
 
-        const constant = this.currentChunk().addConstant(compiler.function);
+        // Record how many upvalues the VM must wire up when executing OP_CLOSURE.
+        compiler.function.upvalueCount = compiler.upvalues.length;
+
+        // Bubble nested compile errors up to the top-level compiler.
+        this.errors.push(...compiler.errors);
+
+        const constant = this.makeConstant(compiler.function);
         this.emitBytes(OpCode.OP_CLOSURE, constant);
 
         for (const upvalue of compiler.upvalues) {
@@ -189,17 +233,15 @@ export class Compiler implements Stmt.StmtVisitor<void>, Expr.ExprVisitor<void> 
             this.emitByte(upvalue.index);
         }
 
-        if (this.scopeDepth > 0) {
-            this.addLocal(stmt.name);
-            this.markInitialized();
-        } else {
-            const nameConstant = this.currentChunk().addConstant(stmt.name.lexeme);
+        if (this.scopeDepth === 0) {
+            const nameConstant = this.makeConstant(stmt.name.lexeme);
             this.emitBytes(OpCode.OP_DEFINE_GLOBAL, nameConstant);
         }
     }
 
     visitClassStmt(stmt: Stmt.Class): void {
-        const constant = this.currentChunk().addConstant(stmt.name.lexeme);
+        this.currentLine = stmt.name.line;
+        const constant = this.makeConstant(stmt.name.lexeme);
         this.emitBytes(OpCode.OP_CLASS, constant);
         this.emitBytes(OpCode.OP_DEFINE_GLOBAL, constant);
     }
@@ -209,12 +251,14 @@ export class Compiler implements Stmt.StmtVisitor<void>, Expr.ExprVisitor<void> 
         for (const arg of expr.args) {
             this.evaluate(arg);
         }
+        this.currentLine = expr.paren.line;
         this.emitBytes(OpCode.OP_CALL, expr.args.length);
     }
 
     visitReturnStmt(stmt: Stmt.Return): void {
+        this.currentLine = stmt.keyword.line;
         if (this.type === FunctionType.TYPE_SCRIPT) {
-            console.error("Can't return from top-level code.");
+            this.error("Can't return from top-level code.", stmt.keyword.line);
         }
 
         if (stmt.value == null) {
@@ -244,6 +288,7 @@ export class Compiler implements Stmt.StmtVisitor<void>, Expr.ExprVisitor<void> 
     }
 
     visitVarStmt(stmt: Stmt.Var): void {
+        this.currentLine = stmt.name.line;
         // 1. Declare
         if (this.scopeDepth > 0) {
             for (let i = this.locals.length - 1; i >= 0; i--) {
@@ -251,7 +296,7 @@ export class Compiler implements Stmt.StmtVisitor<void>, Expr.ExprVisitor<void> 
                 if (!local) continue;
                 if (local.depth !== -1 && local.depth < this.scopeDepth) break;
                 if (local.name.lexeme === stmt.name.lexeme) {
-                    console.error('Already a variable with this name in this scope.');
+                    this.error('Already a variable with this name in this scope.', stmt.name.line);
                 }
             }
             this.addLocal(stmt.name);
@@ -268,8 +313,7 @@ export class Compiler implements Stmt.StmtVisitor<void>, Expr.ExprVisitor<void> 
         if (this.scopeDepth > 0) {
             this.markInitialized();
         } else {
-            const name = stmt.name.lexeme;
-            const constant = this.currentChunk().addConstant(name);
+            const constant = this.makeConstant(stmt.name.lexeme);
             this.emitBytes(OpCode.OP_DEFINE_GLOBAL, constant);
         }
     }
@@ -321,7 +365,7 @@ export class Compiler implements Stmt.StmtVisitor<void>, Expr.ExprVisitor<void> 
     private emitLoop(loopStart: number) {
         this.emitByte(OpCode.OP_LOOP);
         const offset = this.currentChunk().code.length - loopStart + 2;
-        if (offset > 65535) throw new Error('Loop body too large.');
+        if (offset > 65535) this.error('Loop body too large.');
         this.emitByte((offset >> 8) & 0xff);
         this.emitByte(offset & 0xff);
     }
@@ -335,7 +379,7 @@ export class Compiler implements Stmt.StmtVisitor<void>, Expr.ExprVisitor<void> 
 
     private patchJump(offset: number) {
         const jump = this.currentChunk().code.length - offset - 2;
-        if (jump > 65535) throw new Error('Too much code to jump over.');
+        if (jump > 65535) this.error('Too much code to jump over.');
         this.currentChunk().code[offset] = (jump >> 8) & 0xff;
         this.currentChunk().code[offset + 1] = jump & 0xff;
     }
@@ -343,6 +387,7 @@ export class Compiler implements Stmt.StmtVisitor<void>, Expr.ExprVisitor<void> 
     visitBinaryExpr(expr: Expr.Binary): void {
         this.evaluate(expr.left);
         this.evaluate(expr.right);
+        this.currentLine = expr.operator.line;
         switch (expr.operator.type) {
             case TokenType.BANG_EQUAL:
                 this.emitBytes(OpCode.OP_EQUAL, OpCode.OP_NOT);
@@ -400,6 +445,7 @@ export class Compiler implements Stmt.StmtVisitor<void>, Expr.ExprVisitor<void> 
 
     visitUnaryExpr(expr: Expr.Unary): void {
         this.evaluate(expr.right);
+        this.currentLine = expr.operator.line;
         switch (expr.operator.type) {
             case TokenType.MINUS:
                 this.emitByte(OpCode.OP_NEGATE);
@@ -411,6 +457,7 @@ export class Compiler implements Stmt.StmtVisitor<void>, Expr.ExprVisitor<void> 
     }
 
     visitVariableExpr(expr: Expr.Variable): void {
+        this.currentLine = expr.name.line;
         let arg = this.resolveLocal(expr.name);
         if (arg !== -1) {
             this.emitBytes(OpCode.OP_GET_LOCAL, arg);
@@ -419,7 +466,7 @@ export class Compiler implements Stmt.StmtVisitor<void>, Expr.ExprVisitor<void> 
             if (arg !== -1) {
                 this.emitBytes(OpCode.OP_GET_UPVALUE, arg);
             } else {
-                const constant = this.currentChunk().addConstant(expr.name.lexeme);
+                const constant = this.makeConstant(expr.name.lexeme);
                 this.emitBytes(OpCode.OP_GET_GLOBAL, constant);
             }
         }
@@ -427,6 +474,7 @@ export class Compiler implements Stmt.StmtVisitor<void>, Expr.ExprVisitor<void> 
 
     visitLogicalExpr(expr: Expr.Logical): void {
         this.evaluate(expr.left);
+        this.currentLine = expr.operator.line;
 
         if (expr.operator.type === TokenType.OR) {
             const elseJump = this.emitJump(OpCode.OP_JUMP_IF_FALSE);
@@ -448,6 +496,7 @@ export class Compiler implements Stmt.StmtVisitor<void>, Expr.ExprVisitor<void> 
 
     visitAssignExpr(expr: Expr.Assign): void {
         this.evaluate(expr.value);
+        this.currentLine = expr.name.line;
         let arg = this.resolveLocal(expr.name);
         if (arg !== -1) {
             this.emitBytes(OpCode.OP_SET_LOCAL, arg);
@@ -456,7 +505,7 @@ export class Compiler implements Stmt.StmtVisitor<void>, Expr.ExprVisitor<void> 
             if (arg !== -1) {
                 this.emitBytes(OpCode.OP_SET_UPVALUE, arg);
             } else {
-                const constant = this.currentChunk().addConstant(expr.name.lexeme);
+                const constant = this.makeConstant(expr.name.lexeme);
                 this.emitBytes(OpCode.OP_SET_GLOBAL, constant);
             }
         }
@@ -464,34 +513,23 @@ export class Compiler implements Stmt.StmtVisitor<void>, Expr.ExprVisitor<void> 
 
     visitGetExpr(expr: Expr.Get): void {
         this.evaluate(expr.object);
-        const name = this.currentChunk().addConstant(expr.name.lexeme);
+        this.currentLine = expr.name.line;
+        const name = this.makeConstant(expr.name.lexeme);
         this.emitBytes(OpCode.OP_GET_PROPERTY, name);
     }
 
     visitSetExpr(expr: Expr.Set): void {
         this.evaluate(expr.object);
         this.evaluate(expr.value);
-        const name = this.currentChunk().addConstant(expr.name.lexeme);
+        this.currentLine = expr.name.line;
+        const name = this.makeConstant(expr.name.lexeme);
         this.emitBytes(OpCode.OP_SET_PROPERTY, name);
     }
 
-    visitThisExpr(_expr: Expr.This): void {
-        // For now, treat 'this' as a variable.
-        // In a real implementation we would need to ensure we are inside a method.
-        // And 'this' should be at stack slot 0 (which we Reserved in constructor but currently is generic).
-        // Since we don't have methods yet, 'this' might not work as expected everywhere, but let's try resolving it as local.
-        // Actually, we need to resolve it. Token "this" needs to be resolved.
-        // But expr.keyword is "this".
-        // Let's try to resolve it as a local variable named "this".
-        // Note: The compiler constructor reserves slot 0 with name "". We might need to name it "this" inside methods.
-        // For now, let's just emit an error or try to resolve it.
-
-        // Simpler implementation for now: failure if used outside method (which we don't support yet).
-        // OR: Just try to resolve it. If we are in a script, it might fail.
-
-        // We'll leave it simple:
-        console.error("'this' not fully supported yet (no methods).");
-        // But to satisfy the visitor:
+    visitThisExpr(expr: Expr.This): void {
+        // Methods are not implemented yet, so 'this' cannot be resolved.
+        // Fail fast at compile time instead of silently evaluating to nil.
+        this.error("'this' is not supported yet (classes have no methods).", expr.keyword.line);
         this.emitByte(OpCode.OP_NIL);
     }
 

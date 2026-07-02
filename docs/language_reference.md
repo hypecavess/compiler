@@ -289,7 +289,7 @@ print dog.age;  // 3
 > - No constructors — fields must be assigned after creation
 > - No methods — only field get/set is supported
 > - No inheritance or `super`
-> - `this` keyword compiles but is non-functional (always evaluates to `nil`)
+> - `this` keyword is a compile error (methods do not exist yet)
 
 ---
 
@@ -300,8 +300,8 @@ Built-in functions available globally without any imports:
 | Function | Parameters | Returns | Description |
 |---|---|---|---|
 | `clock()` | none | `number` | Seconds since Unix epoch (float) |
-| `len(x)` | array or string | `number` | Length of array or string; `0` for other types |
-| `push(arr, val)` | array, any value | the pushed value | Appends `val` to end of `arr` |
+| `len(x)` | array or string | `number` | Length of array or string; runtime error for other types |
+| `push(arr, val)` | array, any value | the pushed value | Appends `val` to end of `arr`; runtime error if `arr` is not an array |
 | `pop(arr)` | array | the removed value | Removes and returns last element; `nil` if empty |
 
 ```javascript
@@ -331,8 +331,8 @@ print pop(items);  // second
 print 42;          // 42
 print "hello";     // hello
 print true;        // true
-print nil;         // null
-print [1, 2, 3];   // 1,2,3
+print nil;         // nil
+print [1, 2, 3];   // [1, 2, 3]
 ```
 
 > `print` is a statement, not a function — no parentheses needed: `print x;` not `print(x)`.

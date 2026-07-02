@@ -6,6 +6,11 @@ export class Lexer {
     private start: number = 0;
     private current: number = 0;
     private line: number = 1;
+    readonly errors: string[] = [];
+
+    get hadError(): boolean {
+        return this.errors.length > 0;
+    }
 
     private static keywords: Record<string, TokenType> = {
         and: TokenType.AND,
@@ -121,7 +126,7 @@ export class Lexer {
                 } else if (this.isAlpha(c)) {
                     this.identifier();
                 } else {
-                    console.error(`Line ${this.line}: Unexpected character.`);
+                    this.error(`Unexpected character '${c}'.`);
                 }
                 break;
         }
@@ -160,7 +165,7 @@ export class Lexer {
         }
 
         if (this.isAtEnd()) {
-            console.error(`Line ${this.line}: Unterminated string.`);
+            this.error('Unterminated string.');
             return;
         }
 
@@ -213,5 +218,11 @@ export class Lexer {
     private addToken(type: TokenType, literal: LiteralType = null): void {
         const text = this.source.substring(this.start, this.current);
         this.tokens.push(new Token(type, text, literal, this.line));
+    }
+
+    private error(message: string): void {
+        const formatted = `[line ${this.line}] Error: ${message}`;
+        this.errors.push(formatted);
+        console.error(formatted);
     }
 }

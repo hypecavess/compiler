@@ -128,10 +128,13 @@ The VM is a **stack-based virtual machine** that executes bytecode instructions 
 
 ### Security Limits
 
-| Limit | Value | Purpose |
+| Limit | Default | Purpose |
 |---|---|---|
-| `MAX_STACK` | 64 frames | Prevents stack overflow from deep/infinite recursion |
-| `MAX_EXECUTION_TIME_MS` | 5000 ms | Prevents infinite loops from hanging the process |
+| `maxFrames` | 64 frames | Prevents stack overflow from deep/infinite recursion |
+| `maxStackSize` | 16384 values | Caps operand stack growth |
+| `maxExecutionMs` | 5000 ms | Prevents infinite loops from hanging the process |
+
+All limits are configurable via the `VM` constructor options (`new VM({ maxExecutionMs: 100 })`).
 
 ### Instruction Set (Complete)
 
@@ -297,8 +300,7 @@ The pipeline per input line/file: `Lexer → Parser → Compiler → VM`.
 | Area | Limitation |
 |---|---|
 | **Classes** | No methods, constructors, or inheritance. Only field get/set via dot notation. `super` is reserved but unimplemented. |
-| **`this`** | Compiles to `OP_NIL` — not functional outside methods (which don't exist yet). |
-| **Error reporting** | Compiler emits line `0` for all bytecode. Debug line info is placeholder only. |
+| **`this`** | Compile error — methods don't exist yet. |
 | **String interning** | Not implemented — strings are compared by value (`===`), not by reference. The "String Table" mentioned in older docs does not exist. |
 | **Max constants** | 256 per chunk (single-byte operand addressing). |
 | **Max locals** | 256 per function. |
