@@ -28,7 +28,7 @@
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "npm run lint && npm test && npm run build",
-    "start": "ts-node --esm src/main.ts",
+    "start": "node --loader ts-node/esm src/main.ts",
     "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js",
     "test:unit": "node --experimental-vm-modules node_modules/jest/bin/jest.js tests/unit",
     "test:integration": "node --experimental-vm-modules node_modules/jest/bin/jest.js tests/integration",
@@ -37,7 +37,7 @@
     "lint": "eslint \"src/**/*.ts\" \"tests/**/*.ts\"",
     "lint:fix": "eslint \"src/**/*.ts\" \"tests/**/*.ts\" --fix",
     "format": "prettier --write \"src/**/*.ts\" \"tests/**/*.ts\"",
-    "fradual": "ts-node --esm src/main.ts"
+    "fradual": "node --loader ts-node/esm src/main.ts"
   },
   "keywords": [
     "compiler",
