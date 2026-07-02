@@ -38,6 +38,7 @@ The **Compiler** is a robust bytecode compiler and virtual machine designed for 
 This project serves as both a production-ready implementation of the Fradual language and an educational resource for understanding compiler construction, bytecode generation, and VM architecture. Key features include:
 
 -   **High-Performance VM**: A fast, stack-based virtual machine implementation.
+-   **Sandboxed Execution**: Configurable limits on execution time, call depth, and stack size keep runaway programs in check.
 -   **Strong Typing**: Built entirely in **TypeScript** for type safety and maintainability.
 -   **Comprehensive Tooling**: Includes a lexer, parser, compiler, and disassembler.
 -   **Extensible Design**: Modular architecture allowing for easy addition of new language features.
@@ -74,11 +75,12 @@ Getting **Compiler** up and running is straightforward. Follow these steps to se
     npm install
     ```
 
-4.  **Build the Project** (Optional but recommended)
+4.  **Build the Project** (Required to run the compiled CLI)
     Compile the TypeScript source code to JavaScript:
     ```bash
     npm run build
     ```
+    This emits `dist/main.js`, which both `node dist/main.js` and the `fradual` binary use.
 
 **Method 2: Install via GitHub Packages**
 
@@ -107,7 +109,7 @@ Check out the `examples/` directory for ready-to-run code samples.
 To run an example:
 ```bash
 # If cloned locally after building:
-node dist/src/main.js examples/01_basics.fu
+node dist/main.js examples/01_basics.fu
 
 # If installed globally:
 fradual examples/01_basics.fu
