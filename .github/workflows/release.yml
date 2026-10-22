@@ -34,11 +34,12 @@ jobs:
       - run: npm publish
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
 
   github-release:
     name: GitHub Release
     runs-on: ubuntu-latest
-    needs: [publish]
+    needs: [ci]
     permissions:
       contents: write
     steps:
