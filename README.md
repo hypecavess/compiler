@@ -14,7 +14,7 @@
   <a href="https://github.com/hypecavess">
     <img alt="By HypeCaves" src="https://img.shields.io/badge/BY%20HYPECAVESS-000000.svg?style=for-the-badge&labelColor=000">
   </a>
-  <a href="https://nothingerr.com/">
+  <a href="https://nothinger.com/">
     <img alt="Verified by Nothinger" src="https://img.shields.io/badge/Verified%20by%20Nothinger-000000.svg?style=for-the-badge&labelColor=000">
   </a>
   <a href="LICENSE">
