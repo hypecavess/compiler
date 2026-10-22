@@ -1,0 +1,213 @@
+/* Top Gradient Fade Overlay */
+.topFadeMask {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 80px;
+  background: linear-gradient(
+    to bottom,
+    rgba(255, 255, 255, 1) 0%,
+    rgba(255, 255, 255, 0.95) 40%,
+    rgba(255, 255, 255, 0) 100%
+  );
+  pointer-events: none;
+  z-index: 80;
+  backdrop-filter: blur(5px);
+  -webkit-backdrop-filter: blur(5px);
+  opacity: 0;
+  transition: opacity 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.topFadeMaskVisible {
+  opacity: 1;
+}
+
+/* Floating Dynamic Island Container */
+.islandWrapper {
+  position: fixed;
+  top: 18px;
+  left: 50%;
+  transform: translate(-50%, -24px) scale(0.94);
+  z-index: 100;
+  opacity: 0;
+  pointer-events: none;
+  transition: transform 0.35s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.25s ease;
+}
+
+.islandWrapperVisible {
+  transform: translate(-50%, 0) scale(1);
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* Island Capsule Pill */
+.islandPill {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background-color: #000000;
+  color: #ffffff;
+  padding: 4px 6px 4px 8px;
+  border-radius: 9999px;
+  box-shadow: 0 16px 36px -6px rgba(0, 0, 0, 0.45), 0 4px 12px -2px rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  user-select: none;
+}
+
+/* Progress Ring Button */
+.ringBtn {
+  background: transparent;
+  border: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  outline: none;
+  border-radius: 50%;
+  transition: transform 0.15s ease;
+}
+
+.ringBtn:hover {
+  transform: scale(1.08);
+}
+
+.ringSvg {
+  display: block;
+}
+
+/* Index Trigger Button */
+.indexTrigger {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  background: transparent;
+  border: none;
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 6px;
+  outline: none;
+  transition: background-color 0.15s ease, opacity 0.15s ease;
+}
+
+.indexTrigger:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+.indexLabel {
+  letter-spacing: -0.01em;
+}
+
+.chevronIcon {
+  color: #9ca3af;
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.chevronRotated {
+  transform: rotate(180deg);
+  color: #ffffff;
+}
+
+/* Percentage Pill */
+.percentBadge {
+  background-color: rgba(255, 255, 255, 0.16);
+  color: #ffffff;
+  border: none;
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  padding: 3.5px 8.5px;
+  border-radius: 9999px;
+  cursor: pointer;
+  transition: background-color 0.15s ease, transform 0.15s ease;
+}
+
+.percentBadge:hover {
+  background-color: rgba(255, 255, 255, 0.25);
+  transform: scale(1.04);
+}
+
+/* Refined Minimalist Index Popover */
+.dropdownPopover {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: 250px;
+  background-color: #000000;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 12px;
+  padding: 5px;
+  box-shadow: 0 20px 40px -6px rgba(0, 0, 0, 0.55), 0 4px 12px -2px rgba(0, 0, 0, 0.35);
+  animation: popoverIn 0.16s cubic-bezier(0.16, 1, 0.3, 1);
+  overflow: hidden;
+}
+
+@keyframes popoverIn {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -6px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0) scale(1);
+  }
+}
+
+.dropdownList {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.dropdownItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 9px;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  color: #a1a1aa;
+  font-size: 12px;
+  line-height: 1.4;
+  text-align: left;
+  cursor: pointer;
+  transition: all 0.12s ease;
+  width: 100%;
+}
+
+.dropdownItem:hover {
+  background-color: rgba(255, 255, 255, 0.08);
+  color: #ffffff;
+}
+
+.dropdownItemActive {
+  background-color: rgba(255, 255, 255, 0.12);
+  color: #ffffff;
+  font-weight: 500;
+}
+
+.itemIndex {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 10px;
+  color: #52525b;
+  flex-shrink: 0;
+}
+
+.itemTitle {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.checkIcon {
+  color: #ffffff;
+  flex-shrink: 0;
+}

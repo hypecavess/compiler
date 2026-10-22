@@ -29,3 +29,7 @@ Thumbs.db
 # Temporary files
 tmp/
 *.tmp
+.vercel
+.env*
+.next/
+web/.next/
