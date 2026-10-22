@@ -8,12 +8,22 @@ import {
     ObjNative,
     ObjUpvalue,
     Value,
+    valueToString,
 } from './object.js';
 
 export enum InterpretResult {
     OK,
     COMPILE_ERROR,
     RUNTIME_ERROR,
+}
+
+export interface VMOptions {
+    /** Maximum wall-clock execution time in milliseconds. Defaults to 5000. */
+    maxExecutionMs?: number;
+    /** Maximum call frame depth. Defaults to 64. */
+    maxFrames?: number;
+    /** Maximum value stack size. Defaults to 16384. */
+    maxStackSize?: number;
 }
 
 class CallFrame {
@@ -34,12 +44,24 @@ export class VM {
     globals: Map<string, Value> = new Map();
     openUpvalues: ObjUpvalue | null = null;
 
-    // Security limits
-    private static readonly MAX_STACK = 64; // Keeping it small as per original code, maybe increase?
-    private static readonly MAX_EXECUTION_TIME_MS = 5000; // 5 seconds timeout
-    private startTime: number = 0;
+    // Security limits (defaults)
+    private static readonly DEFAULT_MAX_FRAMES = 64;
+    private static readonly DEFAULT_MAX_STACK_SIZE = 16384;
+    private static readonly DEFAULT_MAX_EXECUTION_TIME_MS = 5000;
+    // Power of two: the timeout is checked every N instructions via a bitmask.
+    private static readonly TIMEOUT_CHECK_INTERVAL = 1024;
 
-    constructor() {
+    private readonly maxFrames: number;
+    private readonly maxStackSize: number;
+    private readonly maxExecutionMs: number;
+    private startTime: number = 0;
+    private instructionCount: number = 0;
+
+    constructor(options: VMOptions = {}) {
+        this.maxFrames = options.maxFrames ?? VM.DEFAULT_MAX_FRAMES;
+        this.maxStackSize = options.maxStackSize ?? VM.DEFAULT_MAX_STACK_SIZE;
+        this.maxExecutionMs = options.maxExecutionMs ?? VM.DEFAULT_MAX_EXECUTION_TIME_MS;
+
         this.defineNative('clock', 0, (_args: Value[]) => {
             return Date.now() / 1000;
         });
@@ -47,23 +69,23 @@ export class VM {
             const arg = args[0];
             if (arg instanceof ObjArray) return arg.elements.length;
             if (typeof arg === 'string') return arg.length;
-            return 0;
+            throw new TypeError("Argument to 'len' must be an array or a string.");
         });
         this.defineNative('push', 2, (args: Value[]) => {
             const arr = args[0];
             const val = args[1];
-            if (arr instanceof ObjArray && val !== undefined) {
-                arr.elements.push(val);
-                return val;
+            if (!(arr instanceof ObjArray)) {
+                throw new TypeError("First argument to 'push' must be an array.");
             }
-            return null;
+            arr.elements.push(val ?? null);
+            return val ?? null;
         });
         this.defineNative('pop', 1, (args: Value[]) => {
             const arr = args[0];
-            if (arr instanceof ObjArray) {
-                return arr.elements.pop() ?? null;
+            if (!(arr instanceof ObjArray)) {
+                throw new TypeError("Argument to 'pop' must be an array.");
             }
-            return null;
+            return arr.elements.pop() ?? null;
         });
     }
 
@@ -75,35 +97,73 @@ export class VM {
         this.frames = [];
         this.frameCount = 0;
         this.stack = [];
+        this.openUpvalues = null;
         this.startTime = Date.now();
+        this.instructionCount = 0;
 
         const closure = new ObjClosure(function_);
         this.push(closure);
         this.frames[this.frameCount++] = new CallFrame(closure, 0);
 
-        return this.run();
+        try {
+            return this.run();
+        } catch (err) {
+            // Defensive: internal VM faults (e.g. stack underflow/overflow) must
+            // never escape as uncaught exceptions to the host process.
+            this.runtimeError(err instanceof Error ? err.message : String(err));
+            return InterpretResult.RUNTIME_ERROR;
+        }
+    }
+
+    private runtimeError(message: string): void {
+        console.error(`Runtime Error: ${message}`);
+        for (let i = this.frameCount - 1; i >= 0; i--) {
+            const frame = this.frames[i];
+            if (!frame) continue;
+            const fn = frame.closure.function;
+            const line = fn.chunk.lines[Math.max(0, frame.ip - 1)] ?? 0;
+            const location = fn.name ? `${fn.name}()` : 'script';
+            console.error(`  [line ${line}] in ${location}`);
+        }
     }
 
     private run(): InterpretResult {
         let frame = this.frames[this.frameCount - 1];
-        if (!frame) return InterpretResult.RUNTIME_ERROR;
+        if (!frame) {
+            this.runtimeError('No active call frame.');
+            return InterpretResult.RUNTIME_ERROR;
+        }
 
         for (;;) {
-            // Security: Check for timeout
-            if (Date.now() - this.startTime > VM.MAX_EXECUTION_TIME_MS) {
-                console.error('Execution time limit exceeded.');
+            // Security: check for timeout periodically (Date.now() per instruction is costly).
+            if (
+                (this.instructionCount++ & (VM.TIMEOUT_CHECK_INTERVAL - 1)) === 0 &&
+                Date.now() - this.startTime > this.maxExecutionMs
+            ) {
+                this.runtimeError(`Execution time limit exceeded (${this.maxExecutionMs} ms).`);
                 return InterpretResult.RUNTIME_ERROR;
             }
 
             const instruction = this.readByte(frame);
-            if (instruction === undefined) return InterpretResult.RUNTIME_ERROR;
+            if (instruction === undefined) {
+                this.runtimeError('Corrupted bytecode: unexpected end of chunk.');
+                return InterpretResult.RUNTIME_ERROR;
+            }
 
             switch (instruction) {
                 case OpCode.OP_CONSTANT: {
                     const constantIndex = this.readByte(frame);
-                    if (constantIndex === undefined) return InterpretResult.RUNTIME_ERROR;
+                    if (constantIndex === undefined) {
+                        this.runtimeError('Corrupted bytecode: missing constant operand.');
+                        return InterpretResult.RUNTIME_ERROR;
+                    }
                     const constant = frame.closure.function.chunk.constants[constantIndex];
-                    if (constant === undefined) return InterpretResult.RUNTIME_ERROR;
+                    if (constant === undefined) {
+                        this.runtimeError(
+                            `Corrupted bytecode: invalid constant index ${constantIndex}.`,
+                        );
+                        return InterpretResult.RUNTIME_ERROR;
+                    }
                     this.push(constant);
                     break;
                 }
@@ -123,28 +183,35 @@ export class VM {
 
                 case OpCode.OP_GET_LOCAL: {
                     const slot = this.readByte(frame);
-                    if (slot === undefined) return InterpretResult.RUNTIME_ERROR;
+                    if (slot === undefined) {
+                        this.runtimeError('Corrupted bytecode: missing local slot operand.');
+                        return InterpretResult.RUNTIME_ERROR;
+                    }
                     const val = this.stack[frame.slots + slot];
-                    if (val === undefined) return InterpretResult.RUNTIME_ERROR;
+                    if (val === undefined) {
+                        this.runtimeError(`Invalid local slot ${slot}.`);
+                        return InterpretResult.RUNTIME_ERROR;
+                    }
                     this.push(val);
                     break;
                 }
 
                 case OpCode.OP_SET_LOCAL: {
                     const slot = this.readByte(frame);
-                    if (slot === undefined) return InterpretResult.RUNTIME_ERROR;
+                    if (slot === undefined) {
+                        this.runtimeError('Corrupted bytecode: missing local slot operand.');
+                        return InterpretResult.RUNTIME_ERROR;
+                    }
                     this.stack[frame.slots + slot] = this.peek(0);
                     break;
                 }
 
                 case OpCode.OP_GET_GLOBAL: {
-                    const constantIndex = this.readByte(frame);
-                    if (constantIndex === undefined) return InterpretResult.RUNTIME_ERROR;
-                    const name = frame.closure.function.chunk.constants[constantIndex];
-                    if (typeof name !== 'string') return InterpretResult.RUNTIME_ERROR;
+                    const name = this.readConstantName(frame);
+                    if (name === undefined) return InterpretResult.RUNTIME_ERROR;
 
                     if (!this.globals.has(name)) {
-                        console.error(`Undefined variable '${name}'.`);
+                        this.runtimeError(`Undefined variable '${name}'.`);
                         return InterpretResult.RUNTIME_ERROR;
                     }
                     this.push(this.globals.get(name)!);
@@ -152,23 +219,19 @@ export class VM {
                 }
 
                 case OpCode.OP_DEFINE_GLOBAL: {
-                    const constantIndex = this.readByte(frame);
-                    if (constantIndex === undefined) return InterpretResult.RUNTIME_ERROR;
-                    const name = frame.closure.function.chunk.constants[constantIndex];
-                    if (typeof name !== 'string') return InterpretResult.RUNTIME_ERROR;
+                    const name = this.readConstantName(frame);
+                    if (name === undefined) return InterpretResult.RUNTIME_ERROR;
 
                     this.globals.set(name, this.pop());
                     break;
                 }
 
                 case OpCode.OP_SET_GLOBAL: {
-                    const constantIndex = this.readByte(frame);
-                    if (constantIndex === undefined) return InterpretResult.RUNTIME_ERROR;
-                    const name = frame.closure.function.chunk.constants[constantIndex];
-                    if (typeof name !== 'string') return InterpretResult.RUNTIME_ERROR;
+                    const name = this.readConstantName(frame);
+                    if (name === undefined) return InterpretResult.RUNTIME_ERROR;
 
                     if (!this.globals.has(name)) {
-                        console.error(`Undefined variable '${name}'.`);
+                        this.runtimeError(`Undefined variable '${name}'.`);
                         return InterpretResult.RUNTIME_ERROR;
                     }
                     this.globals.set(name, this.peek(0));
@@ -187,10 +250,7 @@ export class VM {
                     if (typeof a === 'number' && typeof b === 'number') {
                         this.push(a > b);
                     } else {
-                        // Strict comparison or error? Original used 'any'.
-                        // Let's enforce types or use generic comparison carefully.
-                        // For now, runtime error if not numbers to be strict.
-                        console.error('Operands must be numbers.');
+                        this.runtimeError('Operands must be numbers.');
                         return InterpretResult.RUNTIME_ERROR;
                     }
                     break;
@@ -201,7 +261,7 @@ export class VM {
                     if (typeof a === 'number' && typeof b === 'number') {
                         this.push(a < b);
                     } else {
-                        console.error('Operands must be numbers.');
+                        this.runtimeError('Operands must be numbers.');
                         return InterpretResult.RUNTIME_ERROR;
                     }
                     break;
@@ -215,7 +275,7 @@ export class VM {
                     } else if (typeof a === 'number' && typeof b === 'number') {
                         this.push(a + b);
                     } else {
-                        console.error('Operands must be two numbers or two strings.');
+                        this.runtimeError('Operands must be two numbers or two strings.');
                         return InterpretResult.RUNTIME_ERROR;
                     }
                     break;
@@ -223,24 +283,30 @@ export class VM {
                 case OpCode.OP_SUBTRACT: {
                     const b = this.pop();
                     const a = this.pop();
-                    if (typeof a !== 'number' || typeof b !== 'number')
+                    if (typeof a !== 'number' || typeof b !== 'number') {
+                        this.runtimeError('Operands must be numbers.');
                         return InterpretResult.RUNTIME_ERROR;
+                    }
                     this.push(a - b);
                     break;
                 }
                 case OpCode.OP_MULTIPLY: {
                     const b = this.pop();
                     const a = this.pop();
-                    if (typeof a !== 'number' || typeof b !== 'number')
+                    if (typeof a !== 'number' || typeof b !== 'number') {
+                        this.runtimeError('Operands must be numbers.');
                         return InterpretResult.RUNTIME_ERROR;
+                    }
                     this.push(a * b);
                     break;
                 }
                 case OpCode.OP_DIVIDE: {
                     const b = this.pop();
                     const a = this.pop();
-                    if (typeof a !== 'number' || typeof b !== 'number')
+                    if (typeof a !== 'number' || typeof b !== 'number') {
+                        this.runtimeError('Operands must be numbers.');
                         return InterpretResult.RUNTIME_ERROR;
+                    }
                     this.push(a / b);
                     break;
                 }
@@ -252,7 +318,7 @@ export class VM {
                 case OpCode.OP_NEGATE: {
                     const val = this.peek(0);
                     if (typeof val !== 'number') {
-                        console.error('Operand must be a number.');
+                        this.runtimeError('Operand must be a number.');
                         return InterpretResult.RUNTIME_ERROR;
                     }
                     this.pop();
@@ -261,44 +327,63 @@ export class VM {
                 }
 
                 case OpCode.OP_PRINT: {
-                    console.log(this.pop());
+                    console.log(valueToString(this.pop()));
                     break;
                 }
 
                 case OpCode.OP_JUMP: {
                     const offset = this.readShort(frame);
-                    if (offset === undefined) return InterpretResult.RUNTIME_ERROR;
+                    if (offset === undefined) {
+                        this.runtimeError('Corrupted bytecode: missing jump offset.');
+                        return InterpretResult.RUNTIME_ERROR;
+                    }
                     frame.ip += offset;
                     break;
                 }
                 case OpCode.OP_JUMP_IF_FALSE: {
                     const offset = this.readShort(frame);
-                    if (offset === undefined) return InterpretResult.RUNTIME_ERROR;
+                    if (offset === undefined) {
+                        this.runtimeError('Corrupted bytecode: missing jump offset.');
+                        return InterpretResult.RUNTIME_ERROR;
+                    }
                     if (!this.peek(0)) frame.ip += offset;
                     break;
                 }
                 case OpCode.OP_LOOP: {
                     const offset = this.readShort(frame);
-                    if (offset === undefined) return InterpretResult.RUNTIME_ERROR;
+                    if (offset === undefined) {
+                        this.runtimeError('Corrupted bytecode: missing loop offset.');
+                        return InterpretResult.RUNTIME_ERROR;
+                    }
                     frame.ip -= offset;
                     break;
                 }
 
                 case OpCode.OP_CALL: {
                     const argCount = this.readByte(frame);
-                    if (argCount === undefined) return InterpretResult.RUNTIME_ERROR;
+                    if (argCount === undefined) {
+                        this.runtimeError('Corrupted bytecode: missing argument count.');
+                        return InterpretResult.RUNTIME_ERROR;
+                    }
 
                     const callee = this.peek(argCount);
 
                     if (callee instanceof ObjNative) {
                         if (argCount != callee.arity) {
-                            console.error(
+                            this.runtimeError(
                                 `Expected ${callee.arity} arguments but got ${argCount}.`,
                             );
                             return InterpretResult.RUNTIME_ERROR;
                         }
                         const args = this.stack.slice(this.stack.length - argCount);
-                        const result = callee.function(args);
+                        let result: Value;
+                        try {
+                            // Never let a host-side exception escape the VM sandbox.
+                            result = callee.function(args);
+                        } catch (err) {
+                            this.runtimeError(err instanceof Error ? err.message : String(err));
+                            return InterpretResult.RUNTIME_ERROR;
+                        }
                         this.stack.length -= argCount + 1; // Pop args and function
                         this.push(result);
                         break;
@@ -307,22 +392,24 @@ export class VM {
                     if (callee instanceof ObjClass) {
                         const instance = new ObjInstance(callee);
                         // replace class with instance
-                        if (this.stack.length - argCount - 1 < 0)
+                        if (this.stack.length - argCount - 1 < 0) {
+                            this.runtimeError('Stack underflow during class instantiation.');
                             return InterpretResult.RUNTIME_ERROR;
+                        }
                         this.stack[this.stack.length - argCount - 1] = instance;
                         break;
                     }
 
                     if (callee instanceof ObjClosure) {
                         if (argCount != callee.function.arity) {
-                            console.error(
+                            this.runtimeError(
                                 `Expected ${callee.function.arity} arguments but got ${argCount}.`,
                             );
                             return InterpretResult.RUNTIME_ERROR;
                         }
 
-                        if (this.frameCount === VM.MAX_STACK) {
-                            console.error('Stack overflow.');
+                        if (this.frameCount === this.maxFrames) {
+                            this.runtimeError(`Stack overflow (max call depth ${this.maxFrames}).`);
                             return InterpretResult.RUNTIME_ERROR;
                         }
 
@@ -332,7 +419,7 @@ export class VM {
                         break;
                     }
 
-                    console.error('Can only call functions and classes.');
+                    this.runtimeError('Can only call functions and classes.');
                     return InterpretResult.RUNTIME_ERROR;
                 }
 
@@ -346,21 +433,23 @@ export class VM {
                     }
 
                     if (!this.frames[this.frameCount]) {
+                        this.runtimeError('Corrupted call stack.');
                         return InterpretResult.RUNTIME_ERROR;
                     }
 
                     this.stack.length = this.frames[this.frameCount]!.slots;
                     this.push(result);
                     frame = this.frames[this.frameCount - 1];
-                    if (!frame) return InterpretResult.RUNTIME_ERROR;
+                    if (!frame) {
+                        this.runtimeError('Corrupted call stack.');
+                        return InterpretResult.RUNTIME_ERROR;
+                    }
                     break;
                 }
 
                 case OpCode.OP_CLASS: {
-                    const constantIndex = this.readByte(frame);
-                    if (constantIndex === undefined) return InterpretResult.RUNTIME_ERROR;
-                    const name = frame.closure.function.chunk.constants[constantIndex];
-                    if (typeof name !== 'string') return InterpretResult.RUNTIME_ERROR;
+                    const name = this.readConstantName(frame);
+                    if (name === undefined) return InterpretResult.RUNTIME_ERROR;
 
                     const klass = new ObjClass(name);
                     this.push(klass);
@@ -368,15 +457,13 @@ export class VM {
                 }
 
                 case OpCode.OP_GET_PROPERTY: {
-                    const constantIndex = this.readByte(frame);
-                    if (constantIndex === undefined) return InterpretResult.RUNTIME_ERROR;
-                    const name = frame.closure.function.chunk.constants[constantIndex];
-                    if (typeof name !== 'string') return InterpretResult.RUNTIME_ERROR;
+                    const name = this.readConstantName(frame);
+                    if (name === undefined) return InterpretResult.RUNTIME_ERROR;
 
                     const instance = this.peek(0);
 
                     if (!(instance instanceof ObjInstance)) {
-                        console.error('Only instances have properties.');
+                        this.runtimeError('Only instances have properties.');
                         return InterpretResult.RUNTIME_ERROR;
                     }
 
@@ -384,22 +471,20 @@ export class VM {
                         this.pop(); // Instance
                         this.push(instance.fields.get(name)!);
                     } else {
-                        console.error(`Undefined property '${name}'.`);
+                        this.runtimeError(`Undefined property '${name}'.`);
                         return InterpretResult.RUNTIME_ERROR;
                     }
                     break;
                 }
 
                 case OpCode.OP_SET_PROPERTY: {
-                    const constantIndex = this.readByte(frame);
-                    if (constantIndex === undefined) return InterpretResult.RUNTIME_ERROR;
-                    const name = frame.closure.function.chunk.constants[constantIndex];
-                    if (typeof name !== 'string') return InterpretResult.RUNTIME_ERROR;
+                    const name = this.readConstantName(frame);
+                    if (name === undefined) return InterpretResult.RUNTIME_ERROR;
 
                     const instance = this.peek(1);
 
                     if (!(instance instanceof ObjInstance)) {
-                        console.error('Only instances have fields.');
+                        this.runtimeError('Only instances have fields.');
                         return InterpretResult.RUNTIME_ERROR;
                     }
 
@@ -412,9 +497,17 @@ export class VM {
 
                 case OpCode.OP_CLOSURE: {
                     const constantIndex = this.readByte(frame);
-                    if (constantIndex === undefined) return InterpretResult.RUNTIME_ERROR;
+                    if (constantIndex === undefined) {
+                        this.runtimeError('Corrupted bytecode: missing closure operand.');
+                        return InterpretResult.RUNTIME_ERROR;
+                    }
                     const func = frame.closure.function.chunk.constants[constantIndex];
-                    if (!(func instanceof ObjFunction)) return InterpretResult.RUNTIME_ERROR;
+                    if (!(func instanceof ObjFunction)) {
+                        this.runtimeError(
+                            'Corrupted bytecode: closure constant is not a function.',
+                        );
+                        return InterpretResult.RUNTIME_ERROR;
+                    }
 
                     const closure = new ObjClosure(func);
                     this.push(closure);
@@ -422,14 +515,18 @@ export class VM {
                     for (let i = 0; i < func.upvalueCount; i++) {
                         const isLocal = this.readByte(frame);
                         const index = this.readByte(frame);
-                        if (isLocal === undefined || index === undefined)
+                        if (isLocal === undefined || index === undefined) {
+                            this.runtimeError('Corrupted bytecode: missing upvalue operands.');
                             return InterpretResult.RUNTIME_ERROR;
+                        }
 
                         if (isLocal) {
                             closure.upvalues.push(this.captureUpvalue(frame.slots + index));
                         } else {
-                            if (index >= frame.closure.upvalues.length)
+                            if (index >= frame.closure.upvalues.length) {
+                                this.runtimeError(`Invalid upvalue index ${index}.`);
                                 return InterpretResult.RUNTIME_ERROR;
+                            }
                             closure.upvalues.push(frame.closure.upvalues[index]!);
                         }
                     }
@@ -438,28 +535,48 @@ export class VM {
 
                 case OpCode.OP_GET_UPVALUE: {
                     const slot = this.readByte(frame);
-                    if (slot === undefined) return InterpretResult.RUNTIME_ERROR;
-                    if (slot >= frame.closure.upvalues.length) return InterpretResult.RUNTIME_ERROR;
+                    if (slot === undefined) {
+                        this.runtimeError('Corrupted bytecode: missing upvalue slot.');
+                        return InterpretResult.RUNTIME_ERROR;
+                    }
+                    if (slot >= frame.closure.upvalues.length) {
+                        this.runtimeError(`Invalid upvalue slot ${slot}.`);
+                        return InterpretResult.RUNTIME_ERROR;
+                    }
 
                     const upvalue = frame.closure.upvalues[slot];
-                    if (!upvalue) return InterpretResult.RUNTIME_ERROR;
+                    if (!upvalue) {
+                        this.runtimeError(`Invalid upvalue slot ${slot}.`);
+                        return InterpretResult.RUNTIME_ERROR;
+                    }
 
+                    // A closed upvalue is identified by location === -1; `closed`
+                    // itself may legitimately hold nil/false/0.
                     this.push(
-                        upvalue.closed !== null ? upvalue.closed : this.stack[upvalue.location]!,
+                        upvalue.location === -1 ? upvalue.closed : this.stack[upvalue.location]!,
                     );
                     break;
                 }
 
                 case OpCode.OP_SET_UPVALUE: {
                     const slot = this.readByte(frame);
-                    if (slot === undefined) return InterpretResult.RUNTIME_ERROR;
-                    if (slot >= frame.closure.upvalues.length) return InterpretResult.RUNTIME_ERROR;
+                    if (slot === undefined) {
+                        this.runtimeError('Corrupted bytecode: missing upvalue slot.');
+                        return InterpretResult.RUNTIME_ERROR;
+                    }
+                    if (slot >= frame.closure.upvalues.length) {
+                        this.runtimeError(`Invalid upvalue slot ${slot}.`);
+                        return InterpretResult.RUNTIME_ERROR;
+                    }
 
                     const upvalue = frame.closure.upvalues[slot];
-                    if (!upvalue) return InterpretResult.RUNTIME_ERROR;
+                    if (!upvalue) {
+                        this.runtimeError(`Invalid upvalue slot ${slot}.`);
+                        return InterpretResult.RUNTIME_ERROR;
+                    }
 
                     const value = this.peek(0);
-                    if (upvalue.closed) {
+                    if (upvalue.location === -1) {
                         upvalue.closed = value;
                     } else {
                         this.stack[upvalue.location] = value;
@@ -475,7 +592,10 @@ export class VM {
 
                 case OpCode.OP_ARRAY: {
                     const count = this.readByte(frame);
-                    if (count === undefined) return InterpretResult.RUNTIME_ERROR;
+                    if (count === undefined) {
+                        this.runtimeError('Corrupted bytecode: missing array element count.');
+                        return InterpretResult.RUNTIME_ERROR;
+                    }
 
                     const elements = [];
                     for (let i = 0; i < count; i++) {
@@ -492,21 +612,21 @@ export class VM {
                     const index = this.pop();
                     const object = this.pop();
 
-                    if (object instanceof ObjArray && typeof index === 'number') {
-                        if (index < 0 || index >= object.elements.length) {
-                            console.error('Array index out of bounds.');
-                            return InterpretResult.RUNTIME_ERROR;
-                        }
-                        const val = object.elements[index];
-                        if (val === undefined) {
-                            this.push(null);
-                        } else {
-                            this.push(val);
-                        }
-                    } else {
-                        console.error('Invalid index operation.');
+                    if (!(object instanceof ObjArray)) {
+                        this.runtimeError('Only arrays can be indexed.');
                         return InterpretResult.RUNTIME_ERROR;
                     }
+                    if (typeof index !== 'number' || !Number.isInteger(index)) {
+                        this.runtimeError('Array index must be an integer.');
+                        return InterpretResult.RUNTIME_ERROR;
+                    }
+                    if (index < 0 || index >= object.elements.length) {
+                        this.runtimeError(
+                            `Array index ${index} out of bounds (length ${object.elements.length}).`,
+                        );
+                        return InterpretResult.RUNTIME_ERROR;
+                    }
+                    this.push(object.elements[index] ?? null);
                     break;
                 }
 
@@ -515,18 +635,28 @@ export class VM {
                     const index = this.pop();
                     const object = this.pop();
 
-                    if (object instanceof ObjArray && typeof index === 'number') {
-                        if (index < 0 || index >= object.elements.length) {
-                            console.error('Array index out of bounds.');
-                            return InterpretResult.RUNTIME_ERROR;
-                        }
-                        object.elements[index] = value;
-                        this.push(value);
-                    } else {
-                        console.error('Invalid index operation.');
+                    if (!(object instanceof ObjArray)) {
+                        this.runtimeError('Only arrays can be indexed.');
                         return InterpretResult.RUNTIME_ERROR;
                     }
+                    if (typeof index !== 'number' || !Number.isInteger(index)) {
+                        this.runtimeError('Array index must be an integer.');
+                        return InterpretResult.RUNTIME_ERROR;
+                    }
+                    if (index < 0 || index >= object.elements.length) {
+                        this.runtimeError(
+                            `Array index ${index} out of bounds (length ${object.elements.length}).`,
+                        );
+                        return InterpretResult.RUNTIME_ERROR;
+                    }
+                    object.elements[index] = value;
+                    this.push(value);
                     break;
+                }
+
+                default: {
+                    this.runtimeError(`Unknown opcode ${instruction}.`);
+                    return InterpretResult.RUNTIME_ERROR;
                 }
             }
         }
@@ -543,6 +673,21 @@ export class VM {
         const low = frame.closure.function.chunk.code[frame.ip++];
         if (high === undefined || low === undefined) return undefined;
         return (high << 8) | low;
+    }
+
+    /** Reads a one-byte constant operand and validates that it names a string constant. */
+    private readConstantName(frame: CallFrame): string | undefined {
+        const constantIndex = this.readByte(frame);
+        if (constantIndex === undefined) {
+            this.runtimeError('Corrupted bytecode: missing constant operand.');
+            return undefined;
+        }
+        const name = frame.closure.function.chunk.constants[constantIndex];
+        if (typeof name !== 'string') {
+            this.runtimeError(`Corrupted bytecode: constant ${constantIndex} is not a name.`);
+            return undefined;
+        }
+        return name;
     }
 
     private captureUpvalue(local: number): ObjUpvalue {
@@ -574,8 +719,6 @@ export class VM {
         while (this.openUpvalues != null && this.openUpvalues.location >= last) {
             const upvalue = this.openUpvalues;
             const val = this.stack[upvalue.location];
-            // If val is undefined, that means we are closing up something that is already gone?
-            // In a correct compilers, stack should cover the location.
             upvalue.closed = val ?? null;
             upvalue.location = -1; // Invalid location
             this.openUpvalues = upvalue.next;
@@ -583,6 +726,9 @@ export class VM {
     }
 
     private push(value: Value) {
+        if (this.stack.length >= this.maxStackSize) {
+            throw new RangeError(`Value stack overflow (max ${this.maxStackSize}).`);
+        }
         this.stack.push(value);
     }
 

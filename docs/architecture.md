@@ -35,6 +35,7 @@ The Lexer reads the raw source code character by character and groups them into 
 - Maps reserved words to keyword tokens: `and`, `class`, `else`, `false`, `for`, `fun`, `if`, `nil`, `or`, `print`, `return`, `super`, `this`, `true`, `var`, `while`
 - Ignores whitespace and single-line comments (`//`)
 - Tracks line numbers for error reporting
+- Collects lexical errors (unexpected characters, unterminated strings) into `errors[]`, exposed via `hadError`
 
 **Token structure:**
 ```typescript
@@ -63,6 +64,7 @@ The Parser takes the token stream and constructs an **Abstract Syntax Tree (AST)
   - **Statements** (`Stmt`): `Expression`, `Print`, `Var`, `Block`, `If`, `While`, `FunctionStmt`, `Return`, `Class`
 - Desugars `for` loops into `while` loops with initializer/increment blocks
 - Handles error recovery via `synchronize()` — on parse error, skips tokens until the next statement boundary
+- Collects syntax errors into `errors[]`, exposed via `hadError`; the driver refuses to execute code that failed to parse
 
 **Visitor interfaces** (`ExprVisitor<R>`, `StmtVisitor<R>`) ensure that the Compiler can traverse the tree without `instanceof` chains:
 
@@ -88,8 +90,11 @@ The Compiler traverses the AST via the Visitor pattern and emits **bytecode inst
 **Responsibilities:**
 - **Variable resolution:** Distinguishes local variables (stack-based, index-addressed), global variables (name-addressed via constants table), and upvalues (captured closed-over variables)
 - **Scope management:** Tracks `scopeDepth` and a `locals` array. When a scope ends, locals are popped (or closed if captured by a closure)
-- **Function compilation:** Creates a new `Compiler` instance for each function body, linked via `enclosing`. The compiled function is emitted as an `OP_CLOSURE` instruction
+- **Function compilation:** Creates a new `Compiler` instance for each function body, linked via `enclosing`. The compiled function is emitted as an `OP_CLOSURE` instruction. Local function names are declared *before* their body is compiled so local functions can recurse
 - **Jump patching:** Emits placeholder jump offsets and back-patches them once the target address is known
+- **Constant pool management:** Identical primitive constants are deduplicated; exceeding the 256-slot pool is a compile error (never silent operand truncation)
+- **Line tracking:** Source line numbers from tokens are written alongside each emitted byte (`chunk.lines`), enabling line-accurate runtime error reports
+- **Error collection:** All compile errors (top-level `return`, `this`, redeclaration, jump overflow, ...) are collected into `errors[]` and exposed via `hadError`; nested function errors bubble up to the top-level compiler
 
 ### Bytecode Chunk
 
@@ -128,10 +133,13 @@ The VM is a **stack-based virtual machine** that executes bytecode instructions 
 
 ### Security Limits
 
-| Limit | Value | Purpose |
+| Limit | Default | Purpose |
 |---|---|---|
-| `MAX_STACK` | 64 frames | Prevents stack overflow from deep/infinite recursion |
-| `MAX_EXECUTION_TIME_MS` | 5000 ms | Prevents infinite loops from hanging the process |
+| `maxFrames` | 64 frames | Prevents stack overflow from deep/infinite recursion |
+| `maxStackSize` | 16384 values | Caps operand stack growth |
+| `maxExecutionMs` | 5000 ms | Prevents infinite loops from hanging the process |
+
+All limits are configurable via the `VM` constructor options (`new VM({ maxExecutionMs: 100 })`).
 
 ### Instruction Set (Complete)
 
@@ -201,7 +209,11 @@ The VM supports **35 bytecode instructions**:
 | `OP_CLASS` | 1 byte (name index) | `[] → [class]` | Create a class object |
 | `OP_GET_PROPERTY` | 1 byte (name index) | `[instance] → [value]` | Read instance field |
 | `OP_SET_PROPERTY` | 1 byte (name index) | `[instance, value] → [value]` | Write instance field |
-| `OP_PRINT` | — | `[value] → []` | Pop and print to stdout |
+
+#### I/O
+| OpCode | Operand | Stack Effect | Description |
+|---|---|---|---|
+| `OP_PRINT` | — | `[value] → []` | Pop and print to stdout (canonical formatting via `valueToString`) |
 
 #### Arrays
 | OpCode | Operand | Stack Effect | Description |
@@ -256,7 +268,7 @@ The `Disassembler` class can dump a `Chunk`'s bytecode in human-readable format.
 - **Jump** (3 bytes): `OP_JUMP`, `OP_JUMP_IF_FALSE`, `OP_LOOP`
 - **Closure** (variable): `OP_CLOSURE` + constant index + upvalue pairs
 
-**Usage** (enable in `src/main.ts`):
+**Usage** (add after compilation, e.g. in `src/main.ts`):
 ```typescript
 import { Disassembler } from './debug.js';
 new Disassembler().disassembleChunk(function_.chunk, 'script');
@@ -273,9 +285,11 @@ Native functions are implemented in TypeScript and injected into the `globals` m
 | Function | Arity | Description |
 |---|---|---|
 | `clock()` | 0 | Returns seconds since Unix epoch (as `Date.now() / 1000`) |
-| `len(x)` | 1 | Returns length of an `ObjArray` or `string` |
-| `push(arr, val)` | 2 | Appends `val` to `arr`, returns `val` |
-| `pop(arr)` | 1 | Removes and returns the last element of `arr` |
+| `len(x)` | 1 | Returns length of an `ObjArray` or `string`; runtime error for other types |
+| `push(arr, val)` | 2 | Appends `val` to `arr`, returns `val`; runtime error if `arr` is not an array |
+| `pop(arr)` | 1 | Removes and returns the last element of `arr` (`nil` if empty); runtime error if not an array |
+
+Native calls are sandboxed: argument counts are checked against the declared arity, and any host-side exception thrown inside a native function is converted into a Fradual runtime error instead of crashing the process.
 
 ---
 
@@ -285,10 +299,12 @@ Native functions are implemented in TypeScript and injected into the `globals` m
 
 The main module provides two modes of operation:
 
-- **File mode:** `fradual path/to/script.fu` — reads and executes a `.fu` file
-- **REPL mode:** `fradual` (no arguments) — interactive line-by-line execution
+- **File mode:** `fradual path/to/script.fu` — reads and executes a `.fu` file. Files larger than 1 MiB are rejected.
+- **REPL mode:** `fradual` (no arguments) — interactive line-by-line execution. A single `VM` instance is reused, so global variables persist across lines.
 
-The pipeline per input line/file: `Lexer → Parser → Compiler → VM`.
+The pipeline per input line/file: `Lexer → Parser → Compiler → VM`. If the lexer, parser, or compiler reports any error (`hadError`), the VM is never invoked.
+
+**Exit codes:** `0` success, `64` usage error, `65` compile error (or oversized source), `70` runtime error, `74` unreadable file.
 
 ---
 
@@ -297,10 +313,10 @@ The pipeline per input line/file: `Lexer → Parser → Compiler → VM`.
 | Area | Limitation |
 |---|---|
 | **Classes** | No methods, constructors, or inheritance. Only field get/set via dot notation. `super` is reserved but unimplemented. |
-| **`this`** | Compiles to `OP_NIL` — not functional outside methods (which don't exist yet). |
-| **Error reporting** | Compiler emits line `0` for all bytecode. Debug line info is placeholder only. |
+| **`this`** | Compile error — methods don't exist yet. |
+| **String escapes** | Escape sequences (`\n`, `\t`, `\"`, ...) are not supported; backslashes are literal characters. |
 | **String interning** | Not implemented — strings are compared by value (`===`), not by reference. The "String Table" mentioned in older docs does not exist. |
-| **Max constants** | 256 per chunk (single-byte operand addressing). |
+| **Max constants** | 256 per chunk (single-byte operand addressing); enforced as a compile error. |
 | **Max locals** | 256 per function. |
-| **Max parameters** | 255 per function call. |
-| **Array index** | Out-of-bounds access is a runtime error (no wrapping or auto-grow). |
+| **Max parameters/arguments** | 255 per function declaration and per call. |
+| **Array index** | Must be an integer; out-of-bounds access is a runtime error (no wrapping or auto-grow). |

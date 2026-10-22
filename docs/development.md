@@ -29,7 +29,13 @@ Compile TypeScript to JavaScript:
 npm run build
 ```
 
-Output is generated in the `dist/` directory.
+The build uses `tsconfig.build.json` (only `src/`, with declarations and source maps) and emits into the `dist/` directory — `src/main.ts` becomes `dist/main.js`. Tests are type-checked but never shipped.
+
+To type-check everything (including tests) without emitting output:
+
+```bash
+npm run typecheck
+```
 
 ## Running
 
@@ -88,6 +94,7 @@ Output is written to `coverage/`.
 | `compiler.test.ts` | `tests/unit/` | Bytecode output (opcode presence, constants) |
 | `vm.test.ts` | `tests/unit/` | End-to-end execution of all language features |
 | `features.test.ts` | `tests/unit/` | Compiler/VM init, array literals |
+| `security.test.ts` | `tests/unit/` | Error flags, sandbox limits (timeout, stack overflow), constant pool overflow, array bounds, value formatting, closure semantics |
 | `sanity.test.ts` | `tests/unit/` | Basic sanity check |
 | `e2e.test.ts` | `tests/integration/` | Runs `.fu` fixture files and validates output |
 
@@ -138,8 +145,14 @@ compiler/
 ├── playground/             # Scratch scripts for manual testing
 ├── docs/                   # Documentation (you are here)
 ├── dist/                   # Compiled JavaScript (build output)
+├── bin/
+│   └── fradual.js          # CLI entry shim (imports ../dist/main.js)
+├── .github/
+│   ├── workflows/          # CI, CodeQL, and release pipelines
+│   └── dependabot.yml      # Automated dependency updates
 ├── package.json
-├── tsconfig.json
+├── tsconfig.json           # Type-checking config (src + tests)
+├── tsconfig.build.json     # Build config (src only, emits dist/)
 ├── jest.config.js
 ├── .eslintrc.json
 └── .prettierrc
@@ -151,7 +164,7 @@ compiler/
 
 ### Inspecting Bytecode
 
-Uncomment the disassembler lines in `src/main.ts` to see what the compiler generates:
+Add the disassembler after the compile step in `src/main.ts` (inside `run()`, right after `compiler.compile(...)`) to see what the compiler generates:
 
 ```typescript
 import { Disassembler } from './debug.js';
@@ -170,7 +183,7 @@ The `playground/` directory contains scratch `.fu` files for quick manual testin
 npm run fradual -- playground/smoke.fu
 ```
 
-Edit these files freely — they are `.gitignore`'d or intended for local use only.
+These files are tracked in git as shared scratch examples — feel free to experiment with them locally, but avoid committing personal experiments.
 
 ### Common Issues
 
@@ -179,8 +192,8 @@ Edit these files freely — they are `.gitignore`'d or intended for local use on
 | `Unexpected character` | Lexer hit an unsupported character | Check for special unicode characters or block comments (`/* */` not supported) |
 | `Undefined variable 'x'` | Variable used before declaration or out of scope | Ensure `var` is declared in an accessible scope |
 | `Operands must be numbers` | Arithmetic on non-number operands | Cast or validate types before operating |
-| `Stack overflow` | Recursion deeper than 64 call frames | Reduce recursion depth or use iteration |
-| `Execution time limit exceeded` | Loop or recursion ran longer than 5 seconds | Check for infinite loops |
+| `Stack overflow (max call depth 64)` | Recursion deeper than 64 call frames | Reduce recursion depth or use iteration |
+| `Execution time limit exceeded (5000 ms)` | Loop or recursion ran longer than 5 seconds | Check for infinite loops |
 | `Stack underflow` | Compiler bug — more pops than pushes | File a bug report with the `.fu` source |
 
 ---
@@ -189,13 +202,17 @@ Edit these files freely — they are `.gitignore`'d or intended for local use on
 
 The VM enforces safety limits to prevent runaway programs:
 
-| Limit | Value |
-|---|---|
-| Maximum call stack depth | 64 frames |
-| Execution timeout | 5 seconds |
-| Maximum locals per function | 256 |
-| Maximum parameters per function | 255 |
-| Maximum constants per chunk | 256 (single-byte address) |
+| Limit | Default | Enforced by |
+|---|---|---|
+| Maximum call stack depth | 64 frames | VM (`maxFrames`) |
+| Maximum value stack size | 16384 values | VM (`maxStackSize`) |
+| Execution timeout | 5 seconds | VM (`maxExecutionMs`) |
+| Maximum source file size | 1 MiB | CLI |
+| Maximum locals per function | 256 | Compiler |
+| Maximum parameters/arguments | 255 | Parser |
+| Maximum constants per chunk | 256 (single-byte address) | Compiler (compile error on overflow) |
+
+The VM limits are configurable when embedding: `new VM({ maxExecutionMs: 100, maxFrames: 128, maxStackSize: 4096 })`.
 
 ---
 

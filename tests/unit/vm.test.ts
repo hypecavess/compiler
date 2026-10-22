@@ -88,7 +88,7 @@ describe('VM', () => {
 
         test('nil initial value', () => {
             const { output } = run('var x; print x;');
-            expect(output).toEqual(['null']);
+            expect(output).toEqual(['nil']);
         });
     });
 

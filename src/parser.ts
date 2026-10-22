@@ -8,6 +8,11 @@ class ParseError extends Error {}
 export class Parser {
     private tokens: Token[];
     private current: number = 0;
+    readonly errors: string[] = [];
+
+    get hadError(): boolean {
+        return this.errors.length > 0;
+    }
 
     constructor(tokens: Token[]) {
         this.tokens = tokens;
@@ -388,7 +393,10 @@ export class Parser {
     }
 
     private error(token: Token, message: string): ParseError {
-        console.error(`[Line ${token.line}] Error at '${token.lexeme}': ${message}`);
+        const where = token.type === TokenType.EOF ? 'end' : `'${token.lexeme}'`;
+        const formatted = `[line ${token.line}] Error at ${where}: ${message}`;
+        this.errors.push(formatted);
+        console.error(formatted);
         return new ParseError();
     }
 

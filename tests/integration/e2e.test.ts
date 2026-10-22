@@ -28,7 +28,7 @@ describe('Integration Tests (E2E)', () => {
             const { result, output } = run(source);
 
             expect(result).toBe(InterpretResult.OK);
-            expect(output).toEqual(['1', '2', 'null', 'hello']);
+            expect(output).toEqual(['1', '2', 'nil', 'hello']);
         });
     });
 

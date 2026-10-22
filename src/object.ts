@@ -78,8 +78,26 @@ export class ObjArray {
         this.elements = elements;
     }
     toString(): string {
-        return `[${this.elements.join(', ')}]`;
+        return valueToString(this);
     }
+}
+
+/**
+ * Converts a runtime value to its canonical user-facing string representation.
+ * Guards against cyclic array references to prevent unbounded recursion.
+ */
+export function valueToString(value: Value, seen: Set<object> = new Set()): string {
+    if (value === null) return 'nil';
+    if (typeof value === 'string') return value;
+    if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+    if (value instanceof ObjArray) {
+        if (seen.has(value)) return '[...]';
+        seen.add(value);
+        const inner = value.elements.map((element) => valueToString(element, seen)).join(', ');
+        seen.delete(value);
+        return `[${inner}]`;
+    }
+    return value.toString();
 }
 
 export class ObjUpvalue {
