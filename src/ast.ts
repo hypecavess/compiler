@@ -17,6 +17,7 @@ export interface ExprVisitor<R> {
     visitSetExpr(expr: Set): R;
     visitThisExpr(expr: This): R;
     visitArrayLiteralExpr(expr: ArrayLiteral): R;
+    visitMapLiteralExpr(expr: MapLiteral): R;
     visitIndexGetExpr(expr: IndexGet): R;
     visitIndexSetExpr(expr: IndexSet): R;
 }
@@ -307,5 +308,15 @@ export class IndexSet implements Expr {
     }
     accept<R>(visitor: ExprVisitor<R>): R {
         return visitor.visitIndexSetExpr(this);
+    }
+}
+
+export class MapLiteral implements Expr {
+    entries: [Expr, Expr][];
+    constructor(entries: [Expr, Expr][]) {
+        this.entries = entries;
+    }
+    accept<R>(visitor: ExprVisitor<R>): R {
+        return visitor.visitMapLiteralExpr(this);
     }
 }

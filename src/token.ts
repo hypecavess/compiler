@@ -13,6 +13,8 @@ export enum TokenType {
     SEMICOLON,
     SLASH,
     STAR,
+    COLON,
+    PERCENT,
 
     // One or two character tokens.
     BANG,

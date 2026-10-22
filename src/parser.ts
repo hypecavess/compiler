@@ -1,17 +1,22 @@
 import { Token, TokenType } from './token.js';
-// Dual import for semantic separation: Stmt.X for statements, Expr.X for expressions
 import * as Stmt from './ast.js';
 import * as Expr from './ast.js';
+import { Diagnostic, formatDiagnostic } from './diagnostic.js';
 
 class ParseError extends Error {}
 
 export class Parser {
     private tokens: Token[];
     private current: number = 0;
-    readonly errors: string[] = [];
+    readonly diagnostics: Diagnostic[] = [];
+
+    /** Human-readable error messages (formatted diagnostics). */
+    get errors(): string[] {
+        return this.diagnostics.map(formatDiagnostic);
+    }
 
     get hadError(): boolean {
-        return this.errors.length > 0;
+        return this.diagnostics.length > 0;
     }
 
     constructor(tokens: Token[]) {
@@ -264,7 +269,7 @@ export class Parser {
 
     private factor(): Expr.Expr {
         let expr = this.unary();
-        while (this.match(TokenType.SLASH, TokenType.STAR)) {
+        while (this.match(TokenType.SLASH, TokenType.STAR, TokenType.PERCENT)) {
             const operator = this.previous();
             const right = this.unary();
             expr = new Expr.Binary(expr, operator, right);
@@ -341,7 +346,32 @@ export class Parser {
             return this.arrayLiteral();
         }
 
+        if (this.match(TokenType.LEFT_BRACE)) {
+            return this.mapLiteral();
+        }
+
         throw this.error(this.peek(), 'Expect expression.');
+    }
+
+    private mapLiteral(): Expr.Expr {
+        const entries: [Expr.Expr, Expr.Expr][] = [];
+        if (!this.check(TokenType.RIGHT_BRACE)) {
+            do {
+                let key: Expr.Expr;
+                if (this.match(TokenType.STRING)) {
+                    key = new Expr.Literal(this.previous().literal);
+                } else if (this.match(TokenType.IDENTIFIER)) {
+                    key = new Expr.Literal(this.previous().lexeme);
+                } else {
+                    throw this.error(this.peek(), 'Expect map key name or string.');
+                }
+                this.consume(TokenType.COLON, "Expect ':' after map key.");
+                const value = this.expression();
+                entries.push([key, value]);
+            } while (this.match(TokenType.COMMA));
+        }
+        this.consume(TokenType.RIGHT_BRACE, "Expect '}' after map entries.");
+        return new Expr.MapLiteral(entries);
     }
 
     private arrayLiteral(): Expr.Expr {
@@ -394,9 +424,7 @@ export class Parser {
 
     private error(token: Token, message: string): ParseError {
         const where = token.type === TokenType.EOF ? 'end' : `'${token.lexeme}'`;
-        const formatted = `[line ${token.line}] Error at ${where}: ${message}`;
-        this.errors.push(formatted);
-        console.error(formatted);
+        this.diagnostics.push({ kind: 'syntax', message, line: token.line, where });
         return new ParseError();
     }
 

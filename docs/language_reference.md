@@ -1,439 +1,341 @@
-# Language Reference
+# Fradual Language Reference & Specification
 
-Welcome to the **Fradual** language reference. This document provides a comprehensive overview of the language syntax, data types, and all features supported by the current version of the compiler.
+Welcome to the **Fradual** language specification and reference guide. Fradual is a lightweight, dynamically-typed, sandboxed scripting language designed to be embedded into JavaScript and TypeScript applications.
 
-## 1. Syntax Basics
+---
 
-Fradual uses a clean, C-style syntax. Statements end with semicolons `;`, and blocks are enclosed in curly braces `{}`.
+## 1. Syntax & Lexical Conventions
+
+Fradual uses a clean, C-family syntax. Statements end with semicolons `;`, and blocks are delimited with curly braces `{}`.
 
 ### Comments
 ```javascript
 // This is a single-line comment.
-var a = 10; // Comments can also appear at the end of a line.
+var a = 10; // Inline comments can appear at the end of statements.
 ```
+*(Block comments `/* ... */` are not supported).*
 
-> **Note:** Block comments (`/* ... */`) are not supported.
+### Identifiers & Keywords
+Identifiers must start with an ASCII letter or underscore (`_`), followed by any combination of letters, digits, or underscores.
+
+Reserved keywords:
+`and`, `class`, `else`, `false`, `for`, `fun`, `if`, `nil`, `or`, `print`, `return`, `super`, `this`, `true`, `var`, `while`.
 
 ---
 
-## 2. Variables & Data Types
+## 2. Data Types & Semantics
 
-Variables are dynamically typed and declared using the `var` keyword.
+Fradual has five primitive value types and four reference types.
 
-### Declaration
-```javascript
-var name = "Nothinger";
-var age = 25;
-var isActive = true;
-var empty;         // Initialized to nil
-```
-
-### Data Types
+### 2.1 Primitives (Value Semantics)
 
 | Type | Description | Examples |
 |---|---|---|
-| **Number** | Double-precision floating-point | `123`, `3.14`, `-5`, `0.001` |
-| **String** | Text enclosed in double quotes | `"Hello World"`, `""` |
-| **Boolean** | Logical values | `true`, `false` |
-| **Nil** | Absence of a value | `nil` |
-| **Array** | Ordered collection of values | `[1, 2, 3]`, `["a", true, nil]` |
+| **Number** | IEEE 754 64-bit double-precision float | `0`, `42`, `-17.5`, `3.14159` |
+| **String** | UTF-8 encoded text sequence | `"hello"`, `"line 1\nline 2"`, `""` |
+| **Boolean** | Logical truth values | `true`, `false` |
+| **Nil** | Represents the absence of a value | `nil` |
 
-### Strings
+#### Numbers
+- There is no integer/float distinction: all numbers are IEEE 754 64-bit floats.
+- Division by zero yields `Infinity` or `-Infinity`, and `0 / 0` evaluates to `NaN`.
 
-- Strings are enclosed in **double quotes** only (`'single quotes'` are not valid).
-- **Escape sequences are not supported** — `"\n"` is the two literal characters `\` and `n`.
-- A string literal may span multiple lines; the line break becomes part of the string:
+#### Strings & Escape Sequences
+Strings are enclosed in double quotes `"..."`. The lexer supports standard escape sequences:
+- `\n`: Newline
+- `\t`: Tab
+- `\r`: Carriage return
+- `\"`: Double quote
+- `\\`: Backslash
+- `\0`: Null character
 
-```javascript
-var s = "first line
-second line";
-print s;
-// first line
-// second line
-```
+Strings can also span multiple lines directly.
 
-### Truthiness
-
-In boolean contexts (conditions, `!`, `and`, `or`), the following values are **falsey**: `false`, `nil`, `0`, `""`. Everything else is **truthy**.
-
-> ⚠️ **Gotcha:** `0` and `""` are falsey in Fradual (JavaScript-style truthiness).
+#### Nil
+- Variables declared without an initializer default to `nil` (`var x;`).
+- Functions without an explicit `return` expression return `nil`.
+- Accessing a non-existent key on a map returns `nil`.
+- `pop()` on an empty array returns `nil`.
 
 ---
 
-## 3. Operators
+### 2.2 Reference Types (Reference Semantics)
 
-### Arithmetic
+| Type | Description | Creation Syntax |
+|---|---|---|
+| **Array** | Ordered, dynamically-sized list of values | `[1, "two", true]` |
+| **Map** | Key-value dictionary with string keys | `{ key: "value", "id": 100 }` |
+| **Function** | First-class callable code block / closure | `fun add(a, b) { return a + b; }` |
+| **Class & Instance** | User-defined classes and instantiated objects | `class Point {} var p = Point();` |
+
+All reference types are passed and assigned **by reference**:
 ```javascript
-print 10 + 5;   // 15 (addition)
-print 10 - 5;   // 5  (subtraction)
-print 10 * 5;   // 50 (multiplication)
-print 10 / 5;   // 2  (division)
-print 10 / 4;   // 2.5 (no integer division)
-print -10;      // -10 (unary negation)
-```
-
-The `+` operator also concatenates strings:
-```javascript
-print "Hello " + "World"; // "Hello World"
-```
-
-> ⚠️ **Type error:** Mixing types with `+` (e.g., `"age: " + 25`) causes a runtime error (`Operands must be two numbers or two strings.`). Both operands must be the same type (both numbers or both strings).
-
-> ⚠️ **Division edge cases:** Division follows IEEE 754 floating-point semantics — there is no division-by-zero error. `1 / 0` evaluates to `Infinity` and `0 / 0` evaluates to `NaN`.
-
-### Comparison
-```javascript
-print 10 > 5;   // true
-print 10 < 5;   // false
-print 10 >= 5;  // true
-print 10 <= 5;  // false
-```
-
-> Comparison operators only work on numbers. Using them on other types causes a runtime error.
-
-### Equality
-```javascript
-print 10 == 10; // true
-print 10 != 5;  // true
-print "a" == "a"; // true
-print nil == nil;  // true
-print 1 == true;   // false (strict equality, no type coercion)
-```
-
-> **Reference equality for objects:** Arrays, class instances, functions, and classes are compared **by reference**, not by contents:
->
-> ```javascript
-> print [1] == [1]; // false (two different arrays)
-> var a = [1];
-> print a == a;     // true (same array)
-> ```
-
-### Logical
-```javascript
-print true and false; // false
-print true or false;  // true
-print !true;          // false
-```
-
-**Short-circuit evaluation:**
-```javascript
-var a = false;
-print a and (a = true); // false — right side never evaluated
-print a;                // false — a was never changed
-
-var b = true;
-print b or (b = false); // true — right side never evaluated
-print b;                // true — b was never changed
+var a = { count: 1 };
+var b = a;
+b.count = 2;
+print a.count; // 2 (mutated the same underlying map)
 ```
 
 ---
 
-## 4. Control Flow
+## 3. Truthiness & Equality
 
-### If / Else
+### 3.1 Truthiness Rules
+In condition contexts (`if`, `while`, `for`, logical operators `and`, `or`, `!`), Fradual defines **exact truthiness**:
+
+| Value | Truthiness |
+|---|---|
+| `false` | **Falsey** |
+| `nil` | **Falsey** |
+| `0` | **Falsey** |
+| `""` (empty string) | **Falsey** |
+| *All other values* (`true`, non-zero numbers, non-empty strings, `[]`, `{}`, functions, instances) | **Truthy** |
+
+> **Note:** Like JavaScript and Python, `0` and `""` are falsey. Arrays `[]` and maps `{}` are always truthy.
+
+### 3.2 Equality (`==` and `!=`)
+Equality checking is strict and does not perform implicit type coercion:
+
 ```javascript
-var score = 85;
+print 10 == 10;     // true
+print 10 == "10";   // false (different types)
+print nil == nil;   // true
+print nil == false; // false
+print 0 == false;   // false
+```
 
-if (score >= 90) {
-    print "Grade: A";
-} else if (score >= 80) {
-    print "Grade: B";
+- **Primitives** compare by value.
+- **Reference types** (arrays, maps, instances, functions) compare by identity:
+```javascript
+print [1, 2] == [1, 2]; // false (distinct memory objects)
+var arr = [1, 2];
+var alias = arr;
+print arr == alias;     // true (same reference)
+
+print {} == {};         // false (distinct maps)
+```
+
+---
+
+## 4. Operators
+
+### 4.1 Arithmetic Operators
+
+| Operator | Description | Operand Requirements |
+|---|---|---|
+| `+` | Addition / String Concatenation | Numbers OR if either operand is a string |
+| `-` | Subtraction | Two numbers |
+| `*` | Multiplication | Two numbers |
+| `/` | Division (IEEE 754) | Two numbers |
+| `%` | Modulo (Remainder) | Two numbers |
+| `-` (unary) | Negation | Single number |
+
+#### Smart String Concatenation:
+If **either** operand of `+` is a string, the other operand is automatically converted to its canonical string representation:
+```javascript
+print "Score: " + 100;           // "Score: 100"
+print "Active: " + true;         // "Active: true"
+print "List: " + [1, 2];         // "List: [1, 2]"
+print "Items: " + { "qty": 5 };  // "Items: {\"qty\": 5}"
+```
+If neither operand is a string, both must be numbers; mixing other types (e.g. `10 + true`) produces a runtime error.
+
+### 4.2 Comparison Operators
+`<`, `<=`, `>`, `>=` require both operands to be numbers:
+```javascript
+print 5 > 3;   // true
+print 10 <= 10; // true
+```
+
+### 4.3 Logical Operators
+`and` and `or` perform **short-circuit evaluation**:
+- `a and b`: Evaluates `a`. If falsey, returns `a` immediately without evaluating `b`. Otherwise evaluates and returns `b`.
+- `a or b`: Evaluates `a`. If truthy, returns `a` immediately without evaluating `b`. Otherwise evaluates and returns `b`.
+- `!a`: Inverts truthiness, returning `true` if `a` is falsey and `false` if `a` is truthy.
+
+---
+
+## 5. Control Flow
+
+### 5.1 If / Else
+```javascript
+if (user.role == "admin") {
+    grantAllAccess();
+} else if (user.role == "moderator") {
+    grantReviewAccess();
 } else {
-    print "Grade: C";
+    grantBasicAccess();
 }
 ```
 
-> `else if` is not a special syntax — it's an `else` followed by another `if`, which works naturally because `if` is a statement.
-
-### While Loops
+### 5.2 While Loops
 ```javascript
 var count = 3;
 while (count > 0) {
     print count;
     count = count - 1;
 }
-print "Done!";
 ```
 
-### For Loops
+### 5.3 For Loops
+The standard `for` loop desugars cleanly into a `while` loop at parse time:
 ```javascript
 for (var i = 0; i < 5; i = i + 1) {
     print i;
 }
 ```
 
-The for loop has three parts: `for (initializer; condition; increment)`.
-- **Initializer:** Run once before the loop (`var` declaration or expression). Can be omitted: `for (; ...)`
-- **Condition:** Checked before each iteration. If omitted, it's `true` (infinite loop).
-- **Increment:** Run after each iteration body.
-
-> Internally, `for` loops are desugared into `while` loops by the parser.
-
 ---
 
-## 5. Functions
+## 6. Functions & Scope
 
-Functions are first-class citizens, declared with the `fun` keyword.
-
-### Definition & Invocation
-```javascript
-fun greet(name) {
-    return "Hello, " + name + "!";
-}
-print greet("User"); // Hello, User!
-```
-
-### Return Values
-Functions return `nil` by default unless a `return` statement is used.
-```javascript
-fun add(a, b) {
-    return a + b;
-}
-var sum = add(10, 20); // 30
-```
-
-### Recursion
-```javascript
-fun fib(n) {
-    if (n < 2) return n;
-    return fib(n - 1) + fib(n - 2);
-}
-print fib(10); // 55
-```
-
-### Closures
-
-Functions capture variables from their enclosing scope. These captured variables (upvalues) remain alive even after the enclosing scope has ended.
+### 6.1 Declarations & First-Class Functions
+Functions are declared using the `fun` keyword. Functions are first-class values and can be assigned to variables, passed as arguments, and returned from functions:
 
 ```javascript
-fun makeCounter() {
-    var count = 0;
-    fun increment() {
-        count = count + 1;
-        return count;
+fun createMultiplier(factor) {
+    fun multiply(x) {
+        return x * factor;
     }
-    return increment;
+    return multiply;
 }
 
-var counter = makeCounter();
-print counter(); // 1
-print counter(); // 2
-print counter(); // 3
+var double = createMultiplier(2);
+print double(10); // 20
 ```
 
-> ⚠️ **Limits:** Maximum 255 parameters per function. Maximum 256 local variables per function scope.
+### 6.2 Lexical Scoping & Closures
+- Variables have lexical block scope delimited by `{}`.
+- Inner blocks can read and shadow outer variables.
+- Closures capture local variables as **upvalues**. When the enclosing function scope exits, upvalues are closed over and remain heap-allocated for as long as the closure is alive.
+
+### 6.3 Parameters & Arity
+- Functions can accept up to 255 parameters.
+- Calling a function with the wrong number of arguments triggers a runtime error before executing the body.
 
 ---
 
-## 6. Scope
+## 7. Data Structures: Arrays & Maps
 
-Fradual uses **lexical scoping**. Variables declared in an outer block are accessible in inner blocks, but not vice versa.
-
+### 7.1 Arrays
+Arrays are dynamic, zero-indexed lists:
 ```javascript
-var global = "global";
+var list = [10, 20, 30];
+print list[0];     // 10
+list[1] = 99;      // mutate element
+print len(list);   // 2
 
-{
-    var local = "local";
-    print global; // Accessible
-    print local;  // Accessible
+push(list, 40);    // append element
+var last = pop(list); // pop last element (40)
+```
+- Accessing an index outside `0 <= index < len` throws a bounds error.
+- Non-integer indices (e.g. `list["key"]`) throw a type error.
+
+### 7.2 Maps (Dictionaries)
+Maps store string-keyed key-value pairs:
+```javascript
+// Literals support string keys or unquoted identifier keys
+var user = {
+    name: "Alex",
+    "role": "editor",
+    age: 30
+};
+
+// Access via dot notation or bracket notation:
+print user.name;      // "Alex"
+print user["role"];   // "editor"
+
+// Mutate or add new keys:
+user.score = 95;
+user["verified"] = true;
+
+// Number of entries:
+print len(user);      // 5
+
+// Non-existent key returns nil (no runtime error)
+print user.missingKey; // nil
+```
+
+---
+
+## 8. Classes & Instances
+
+Fradual supports object-oriented modeling with classes and dynamic fields:
+```javascript
+class Person {}
+
+var p = Person();
+p.name = "Diana";
+p.age = 28;
+
+print p.name; // Diana
+```
+
+---
+
+## 9. Built-in Standard Functions
+
+The following functions are built into the runtime globally:
+
+| Function | Signature | Description |
+|---|---|---|
+| `clock()` | `() -> number` | Returns the current time in seconds as a high-resolution float. |
+| `len(val)` | `(string \| array \| map) -> number` | Returns the length of a string, element count of an array, or entry count of a map. |
+| `push(arr, item)` | `(array, any) -> any` | Appends `item` to `arr` and returns the pushed item. |
+| `pop(arr)` | `(array) -> any` | Removes and returns the last element of `arr`. Returns `nil` if empty. |
+
+---
+
+## 10. Security & Sandbox Boundary Guarantees
+
+Fradual is built from the ground up for safe execution of untrusted scripts in host Node.js and browser environments.
+
+### 10.1 Resource Governance
+- **Deterministic Instruction Limiting (`maxInstructions`)**: Caps the maximum number of bytecode instructions a script can execute. Because it counts VM opcodes, it is 100% deterministic across all hardware.
+- **Wall-Clock Timeout (`maxExecutionMs`)**: Halts execution if a script runs longer than the allotted time.
+- **Call Stack Limiting (`maxFrames`)**: Limits recursion depth (default 256) to prevent host V8 call stack overflow.
+- **Value Stack Limiting (`maxStackSize`)**: Limits operand stack capacity (default 16,384).
+
+### 10.2 Prototype Pollution & Host Isolation
+- **Host Prototype Immunity**: Scripts cannot access `.constructor`, `.__proto__`, or `Object.prototype`.
+- **Map Isolation**: Maps are implemented on top of isolated `Map<string, Value>` structures. Keys named `toString`, `valueOf`, `constructor`, or `get` never collide with host prototypes.
+- **Safe Bridge Serialization**: Objects returned to or accepted from the host pass through safe boundaries (`fromValue()` / `toValue()`) that sanitize prototype properties and prevent prototype poisoning.
+
+### 10.3 IMPORTANT: The Synchronous Native Execution Boundary
+> [!WARNING]
+> In JavaScript (V8), the engine runs on a single event-loop thread.
+> 
+> The VM's `maxExecutionMs` and `maxInstructions` are evaluated **between bytecode instruction dispatches**. 
+> If a host application registers a synchronous host native function that blocks in an infinite loop inside JavaScript (e.g. `while(true){}`), the VM cannot preempt or interrupt that native function until it returns control to the VM loop.
+>
+> **Best Practice for Multi-Tenant Untrusted Scripts:**
+> If untrusted scripts can trigger host native functions that might block, run the `Fradual` instance inside a dedicated Node.js `worker_threads` Worker or Web Worker with OS/thread-level cancellation.
+
+---
+
+## 11. Error Architecture & Diagnostics
+
+Fradual uses a structured diagnostic pipeline. It never calls `process.exit()` or logs directly to `console.error` inside core libraries.
+
+All errors produce structured `Diagnostic` objects:
+```typescript
+interface Diagnostic {
+    kind: 'lexical' | 'syntax' | 'compile' | 'runtime';
+    message: string;
+    line?: number;
+    stack?: StackFrameInfo[];
 }
-// print local; // Runtime error: Undefined variable 'local'
 ```
 
-Functions defined inside other scopes can access variables from their enclosing scope (see Closures above).
-
----
-
-## 7. Arrays
-
-Arrays are ordered, dynamically-sized collections that can hold values of mixed types.
-
-### Creating Arrays
-```javascript
-var numbers = [1, 2, 3, 4, 5];
-var mixed = ["hello", 42, true, nil];
-var empty = [];
-```
-
-### Accessing Elements
-Array elements are accessed by zero-based index using bracket notation:
-```javascript
-var fruits = ["apple", "banana", "cherry"];
-print fruits[0]; // apple
-print fruits[2]; // cherry
-```
-
-### Modifying Elements
-```javascript
-var arr = [10, 20, 30];
-arr[1] = 99;
-print arr[1]; // 99
-```
-
-> ⚠️ **Runtime error:** Accessing an index outside `0..length-1` causes a runtime error (no auto-grow).
-
-### Array Functions
-```javascript
-var arr = [1, 2, 3];
-
-print len(arr);   // 3
-push(arr, 4);     // arr is now [1, 2, 3, 4]
-var last = pop(arr); // last = 4, arr is now [1, 2, 3]
-```
-
----
-
-## 8. Classes
-
-Fradual supports basic object-oriented programming with classes.
-
-### Class Declaration
-```javascript
-class Dog {
+```typescript
+const result = engine.run("var a = ;");
+if (!result.ok) {
+    for (const diag of result.diagnostics) {
+        console.error(formatDiagnostic(diag));
+    }
 }
 ```
-
-### Instantiation
-Create an instance by calling the class like a function:
-```javascript
-var dog = Dog();
+Output:
 ```
-
-### Fields
-Instances can have dynamic fields that are accessed and assigned using dot notation:
-```javascript
-var dog = Dog();
-dog.name = "Buddy";
-dog.age = 3;
-
-print dog.name; // Buddy
-print dog.age;  // 3
-```
-
-> ⚠️ **Current limitations:**
-> - No constructors — fields must be assigned after creation
-> - No methods — only field get/set is supported
-> - No inheritance or `super`
-> - `this` keyword is a compile error (methods do not exist yet)
-
----
-
-## 9. Native Functions
-
-Built-in functions available globally without any imports:
-
-| Function | Parameters | Returns | Description |
-|---|---|---|---|
-| `clock()` | none | `number` | Seconds since Unix epoch (float) |
-| `len(x)` | array or string | `number` | Length of array or string; runtime error for other types |
-| `push(arr, val)` | array, any value | the pushed value | Appends `val` to end of `arr`; runtime error if `arr` is not an array |
-| `pop(arr)` | array | the removed value | Removes and returns last element; `nil` if empty |
-
-```javascript
-// Benchmarking
-var start = clock();
-// ... heavy computation ...
-print clock() - start;
-
-// String length
-print len("hello"); // 5
-
-// Array manipulation
-var items = [];
-push(items, "first");
-push(items, "second");
-print len(items);  // 2
-print pop(items);  // second
-```
-
----
-
-## 10. Print Statement
-
-`print` is a built-in statement (not a function) that outputs a value followed by a newline:
-
-```javascript
-print 42;          // 42
-print "hello";     // hello
-print true;        // true
-print nil;         // nil
-print [1, 2, 3];   // [1, 2, 3]
-```
-
-Non-primitive values have a canonical representation:
-
-| Value | Output |
-|---|---|
-| Function | `<fn name>` |
-| Native function | `<native fn>` |
-| Class | the class name, e.g. `Dog` |
-| Instance | `Dog instance` |
-| Nested array | `[1, [2, 3]]` |
-| Cyclic array reference | `[...]` (cycles are detected, printing never recurses forever) |
-
-> `print` is a statement, not a function — no parentheses needed: `print x;` not `print(x)`.
-
----
-
-## 11. Error Handling
-
-Fradual has no `try`/`catch` mechanism. Errors halt execution:
-
-- **Lexical errors** — detected during scanning (e.g., unexpected characters, unterminated strings)
-- **Syntax errors** — detected during parsing (e.g., missing semicolons, unmatched braces)
-- **Compile errors** — detected during compilation (e.g., too many locals, returning from top-level, using `this`)
-- **Runtime errors** — detected during execution (e.g., type mismatches, undefined variables, array out of bounds, stack overflow, execution timeout)
-
-If any lexical, syntax, or compile error is found, the program is **never executed**.
-
-Runtime errors report the source line and a call-stack trace:
-
-```
-Runtime Error: Undefined variable 'missing'.
-  [line 3] in someFunction()
-  [line 7] in script
-```
-
-### CLI Exit Codes
-
-| Code | Meaning |
-|---|---|
-| `0` | Success |
-| `64` | Usage error (too many arguments) |
-| `65` | Lexical, syntax, or compile error (also: source file over 1 MiB) |
-| `70` | Runtime error |
-| `74` | File could not be read |
-
----
-
-## Quick Reference
-
-```javascript
-// Variables
-var x = 42;
-var name = "Fradual";
-
-// Control flow
-if (x > 0) { print "positive"; } else { print "non-positive"; }
-while (x > 0) { x = x - 1; }
-for (var i = 0; i < 10; i = i + 1) { print i; }
-
-// Functions & closures
-fun add(a, b) { return a + b; }
-fun makeAdder(n) { fun adder(x) { return x + n; } return adder; }
-
-// Arrays
-var arr = [1, 2, 3];
-push(arr, 4);
-print arr[0];
-print len(arr);
-
-// Classes
-class Point {}
-var p = Point();
-p.x = 10;
-p.y = 20;
-
-// Natives
-print clock();
+[syntax] line 1: Expect expression.
 ```

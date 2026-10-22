@@ -36,6 +36,8 @@ export enum OpCode {
     OP_ARRAY,
     OP_INDEX_GET,
     OP_INDEX_SET,
+    OP_MODULO,
+    OP_MAP,
 }
 
 export class Chunk {

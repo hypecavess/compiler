@@ -71,10 +71,15 @@ describe('Security & Robustness', () => {
 
         test('constant pool overflow is a compile error, not silent corruption', () => {
             silenced(() => {
-                // 300 distinct number literals exceed the 256-slot constant pool.
-                const literals = Array.from({ length: 300 }, (_, i) => `${i + 0.5};`).join('\n');
                 const compiler = new Compiler();
-                compiler.compile(parse(literals));
+                // Pre-fill constants up to Compiler.MAX_CONSTANTS (65536)
+                const chunk = (
+                    compiler as unknown as { function: { chunk: { constants: unknown[] } } }
+                ).function.chunk;
+                for (let i = 0; i < Compiler.MAX_CONSTANTS; i++) {
+                    chunk.constants.push(i);
+                }
+                compiler.compile(parse('999999;'));
                 expect(compiler.hadError).toBe(true);
                 expect(compiler.errors.some((e) => e.includes('Too many constants'))).toBe(true);
             });

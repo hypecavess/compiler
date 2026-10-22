@@ -1,4 +1,5 @@
 import { Token, TokenType, LiteralType } from './token.js';
+import { Diagnostic, formatDiagnostic } from './diagnostic.js';
 
 export class Lexer {
     private source: string;
@@ -6,30 +7,35 @@ export class Lexer {
     private start: number = 0;
     private current: number = 0;
     private line: number = 1;
-    readonly errors: string[] = [];
+    readonly diagnostics: Diagnostic[] = [];
 
-    get hadError(): boolean {
-        return this.errors.length > 0;
+    /** Human-readable error messages (formatted diagnostics). */
+    get errors(): string[] {
+        return this.diagnostics.map(formatDiagnostic);
     }
 
-    private static keywords: Record<string, TokenType> = {
-        and: TokenType.AND,
-        class: TokenType.CLASS,
-        else: TokenType.ELSE,
-        false: TokenType.FALSE,
-        for: TokenType.FOR,
-        fun: TokenType.FUN,
-        if: TokenType.IF,
-        nil: TokenType.NIL,
-        or: TokenType.OR,
-        print: TokenType.PRINT,
-        return: TokenType.RETURN,
-        super: TokenType.SUPER,
-        this: TokenType.THIS,
-        true: TokenType.TRUE,
-        var: TokenType.VAR,
-        while: TokenType.WHILE,
-    };
+    get hadError(): boolean {
+        return this.diagnostics.length > 0;
+    }
+
+    private static readonly keywords: Map<string, TokenType> = new Map([
+        ['and', TokenType.AND],
+        ['class', TokenType.CLASS],
+        ['else', TokenType.ELSE],
+        ['false', TokenType.FALSE],
+        ['for', TokenType.FOR],
+        ['fun', TokenType.FUN],
+        ['if', TokenType.IF],
+        ['nil', TokenType.NIL],
+        ['or', TokenType.OR],
+        ['print', TokenType.PRINT],
+        ['return', TokenType.RETURN],
+        ['super', TokenType.SUPER],
+        ['this', TokenType.THIS],
+        ['true', TokenType.TRUE],
+        ['var', TokenType.VAR],
+        ['while', TokenType.WHILE],
+    ]);
 
     constructor(source: string) {
         this.source = source;
@@ -37,7 +43,6 @@ export class Lexer {
 
     scanTokens(): Token[] {
         while (!this.isAtEnd()) {
-            // We are at the beginning of the next lexeme.
             this.start = this.current;
             this.scanToken();
         }
@@ -79,6 +84,12 @@ export class Lexer {
             case '+':
                 this.addToken(TokenType.PLUS);
                 break;
+            case ':':
+                this.addToken(TokenType.COLON);
+                break;
+            case '%':
+                this.addToken(TokenType.PERCENT);
+                break;
             case ';':
                 this.addToken(TokenType.SEMICOLON);
                 break;
@@ -99,7 +110,6 @@ export class Lexer {
                 break;
             case '/':
                 if (this.match('/')) {
-                    // A comment goes until the end of the line.
                     while (this.peek() !== '\n' && !this.isAtEnd()) this.advance();
                 } else {
                     this.addToken(TokenType.SLASH);
@@ -109,7 +119,6 @@ export class Lexer {
             case ' ':
             case '\r':
             case '\t':
-                // Ignore whitespace.
                 break;
 
             case '\n':
@@ -136,19 +145,15 @@ export class Lexer {
         while (this.isAlphaNumeric(this.peek())) this.advance();
 
         const text = this.source.substring(this.start, this.current);
-        let type = Lexer.keywords[text];
-        if (type === undefined) type = TokenType.IDENTIFIER;
+        const type = Lexer.keywords.get(text) ?? TokenType.IDENTIFIER;
         this.addToken(type);
     }
 
     private number(): void {
         while (this.isDigit(this.peek())) this.advance();
 
-        // Look for a fractional part.
         if (this.peek() === '.' && this.isDigit(this.peekNext())) {
-            // Consume the "."
             this.advance();
-
             while (this.isDigit(this.peek())) this.advance();
         }
 
@@ -159,9 +164,38 @@ export class Lexer {
     }
 
     private string(): void {
+        let value = '';
         while (this.peek() !== '"' && !this.isAtEnd()) {
             if (this.peek() === '\n') this.line++;
-            this.advance();
+            if (this.peek() === '\\') {
+                this.advance();
+                const esc = this.advance();
+                switch (esc) {
+                    case 'n':
+                        value += '\n';
+                        break;
+                    case 'r':
+                        value += '\r';
+                        break;
+                    case 't':
+                        value += '\t';
+                        break;
+                    case '\\':
+                        value += '\\';
+                        break;
+                    case '"':
+                        value += '"';
+                        break;
+                    case '0':
+                        value += '\0';
+                        break;
+                    default:
+                        value += '\\' + esc;
+                        break;
+                }
+            } else {
+                value += this.advance();
+            }
         }
 
         if (this.isAtEnd()) {
@@ -169,11 +203,7 @@ export class Lexer {
             return;
         }
 
-        // The closing ".
         this.advance();
-
-        // Trim the surrounding quotes.
-        const value = this.source.substring(this.start + 1, this.current - 1);
         this.addToken(TokenType.STRING, value);
     }
 
@@ -221,8 +251,6 @@ export class Lexer {
     }
 
     private error(message: string): void {
-        const formatted = `[line ${this.line}] Error: ${message}`;
-        this.errors.push(formatted);
-        console.error(formatted);
+        this.diagnostics.push({ kind: 'lexical', message, line: this.line });
     }
 }

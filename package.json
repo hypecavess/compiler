@@ -1,10 +1,18 @@
 {
-  "name": "@hypecavess/compiler",
-  "version": "0.1.1",
-  "description": "The Fradual Compiler by HypeCaves",
+  "name": "@hypecaves/compiler",
+  "version": "2.0.0",
+  "description": "Embeddable scripting runtime with controlled execution budget for JavaScript and TypeScript applications",
   "type": "module",
-  "main": "dist/main.js",
-  "types": "dist/main.d.ts",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "sideEffects": false,
   "engines": {
     "node": ">=18.0.0"
   },
@@ -13,7 +21,7 @@
     "url": "git+https://github.com/hypecavess/compiler.git"
   },
   "publishConfig": {
-    "registry": "https://npm.pkg.github.com"
+    "access": "public"
   },
   "bin": {
     "fradual": "bin/fradual.js"
@@ -28,7 +36,7 @@
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "npm run lint && npm test && npm run build",
-    "start": "node --loader ts-node/esm src/main.ts",
+    "start": "node --loader ts-node/esm src/cli.ts",
     "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js",
     "test:unit": "node --experimental-vm-modules node_modules/jest/bin/jest.js tests/unit",
     "test:integration": "node --experimental-vm-modules node_modules/jest/bin/jest.js tests/integration",
@@ -37,14 +45,20 @@
     "lint": "eslint \"src/**/*.ts\" \"tests/**/*.ts\"",
     "lint:fix": "eslint \"src/**/*.ts\" \"tests/**/*.ts\" --fix",
     "format": "prettier --write \"src/**/*.ts\" \"tests/**/*.ts\"",
-    "fradual": "node --loader ts-node/esm src/main.ts"
+    "benchmark": "node --loader ts-node/esm benchmark/benchmark.ts",
+    "fradual": "node --loader ts-node/esm src/cli.ts"
   },
   "keywords": [
+    "scripting",
+    "embeddable",
+    "runtime",
+    "bytecode",
     "compiler",
     "vm",
-    "bytecode",
-    "nothinger",
-    "fradual"
+    "execution-budget",
+    "sandbox",
+    "rules-engine",
+    "typescript"
   ],
   "author": "Nothinger Engineering",
   "license": "Apache-2.0",

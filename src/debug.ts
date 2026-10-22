@@ -1,162 +1,132 @@
 import { Chunk, OpCode } from './chunk.js';
+import { ObjFunction, valueToString } from './object.js';
 
+/** Operand layout of each opcode, used by the disassembler. */
+type OperandKind = 'none' | 'byte' | 'constant' | 'short' | 'jump' | 'loop' | 'closure';
+
+const OPERANDS: Record<OpCode, OperandKind> = {
+    [OpCode.OP_CONSTANT]: 'constant',
+    [OpCode.OP_NIL]: 'none',
+    [OpCode.OP_TRUE]: 'none',
+    [OpCode.OP_FALSE]: 'none',
+    [OpCode.OP_POP]: 'none',
+    [OpCode.OP_GET_LOCAL]: 'byte',
+    [OpCode.OP_SET_LOCAL]: 'byte',
+    [OpCode.OP_GET_GLOBAL]: 'constant',
+    [OpCode.OP_DEFINE_GLOBAL]: 'constant',
+    [OpCode.OP_SET_GLOBAL]: 'constant',
+    [OpCode.OP_EQUAL]: 'none',
+    [OpCode.OP_GREATER]: 'none',
+    [OpCode.OP_LESS]: 'none',
+    [OpCode.OP_ADD]: 'none',
+    [OpCode.OP_SUBTRACT]: 'none',
+    [OpCode.OP_MULTIPLY]: 'none',
+    [OpCode.OP_DIVIDE]: 'none',
+    [OpCode.OP_NOT]: 'none',
+    [OpCode.OP_NEGATE]: 'none',
+    [OpCode.OP_PRINT]: 'none',
+    [OpCode.OP_JUMP]: 'jump',
+    [OpCode.OP_JUMP_IF_FALSE]: 'jump',
+    [OpCode.OP_LOOP]: 'loop',
+    [OpCode.OP_CALL]: 'byte',
+    [OpCode.OP_RETURN]: 'none',
+    [OpCode.OP_CLASS]: 'constant',
+    [OpCode.OP_GET_PROPERTY]: 'constant',
+    [OpCode.OP_SET_PROPERTY]: 'constant',
+    [OpCode.OP_CLOSURE]: 'closure',
+    [OpCode.OP_GET_UPVALUE]: 'byte',
+    [OpCode.OP_SET_UPVALUE]: 'byte',
+    [OpCode.OP_CLOSE_UPVALUE]: 'none',
+    [OpCode.OP_ARRAY]: 'short',
+    [OpCode.OP_INDEX_GET]: 'none',
+    [OpCode.OP_INDEX_SET]: 'none',
+    [OpCode.OP_MODULO]: 'none',
+    [OpCode.OP_MAP]: 'short',
+};
+
+/**
+ * Renders bytecode as human-readable text. Pure: returns strings and never
+ * writes to the console, so it works in any host (Node, browsers, workers).
+ */
 export class Disassembler {
-    disassembleChunk(chunk: Chunk, name: string) {
-        console.log(`== ${name} ==`);
-
-        for (let offset = 0; offset < chunk.code.length; ) {
-            offset = this.disassembleInstruction(chunk, offset);
+    /** Disassembles a chunk and, recursively, every function in its constant pool. */
+    disassembleFunction(fn: ObjFunction): string {
+        const parts = [this.disassembleChunk(fn.chunk, fn.name ?? 'script')];
+        for (const constant of fn.chunk.constants) {
+            if (constant instanceof ObjFunction) parts.push(this.disassembleFunction(constant));
         }
+        return parts.join('\n\n');
     }
 
-    disassembleInstruction(chunk: Chunk, offset: number): number {
-        process.stdout.write(`${offset.toString().padStart(4, '0')} `);
+    disassembleChunk(chunk: Chunk, name: string): string {
+        const lines = [`== ${name} ==`];
+        for (let offset = 0; offset < chunk.code.length; ) {
+            const [text, next] = this.disassembleInstruction(chunk, offset);
+            lines.push(text);
+            offset = next;
+        }
+        return lines.join('\n');
+    }
+
+    /** Returns the rendered instruction and the offset of the next instruction. */
+    disassembleInstruction(chunk: Chunk, offset: number): [string, number] {
+        const prefix = offset.toString().padStart(4, '0');
+        const line = chunk.lines[offset];
+        const sameLine = offset > 0 && chunk.lines[offset - 1] === line;
+        const lineCol = (sameLine ? '|' : String(line ?? '?')).padStart(4, ' ');
+        const head = `${prefix} ${lineCol} `;
 
         const instruction = chunk.code[offset];
-        switch (instruction) {
-            case OpCode.OP_CONSTANT:
-                return this.constantInstruction('OP_CONSTANT', chunk, offset);
-            case OpCode.OP_NIL:
-                return this.simpleInstruction('OP_NIL', offset);
-            case OpCode.OP_TRUE:
-                return this.simpleInstruction('OP_TRUE', offset);
-            case OpCode.OP_FALSE:
-                return this.simpleInstruction('OP_FALSE', offset);
-            case OpCode.OP_POP:
-                return this.simpleInstruction('OP_POP', offset);
-            case OpCode.OP_GET_LOCAL:
-                return this.byteInstruction('OP_GET_LOCAL', chunk, offset);
-            case OpCode.OP_SET_LOCAL:
-                return this.byteInstruction('OP_SET_LOCAL', chunk, offset);
-            case OpCode.OP_GET_GLOBAL:
-                return this.constantInstruction('OP_GET_GLOBAL', chunk, offset);
-            case OpCode.OP_DEFINE_GLOBAL:
-                return this.constantInstruction('OP_DEFINE_GLOBAL', chunk, offset);
-            case OpCode.OP_SET_GLOBAL:
-                return this.constantInstruction('OP_SET_GLOBAL', chunk, offset);
-            case OpCode.OP_EQUAL:
-                return this.simpleInstruction('OP_EQUAL', offset);
-            case OpCode.OP_GREATER:
-                return this.simpleInstruction('OP_GREATER', offset);
-            case OpCode.OP_LESS:
-                return this.simpleInstruction('OP_LESS', offset);
-            case OpCode.OP_ADD:
-                return this.simpleInstruction('OP_ADD', offset);
-            case OpCode.OP_SUBTRACT:
-                return this.simpleInstruction('OP_SUBTRACT', offset);
-            case OpCode.OP_MULTIPLY:
-                return this.simpleInstruction('OP_MULTIPLY', offset);
-            case OpCode.OP_DIVIDE:
-                return this.simpleInstruction('OP_DIVIDE', offset);
-            case OpCode.OP_NOT:
-                return this.simpleInstruction('OP_NOT', offset);
-            case OpCode.OP_NEGATE:
-                return this.simpleInstruction('OP_NEGATE', offset);
-            case OpCode.OP_PRINT:
-                return this.simpleInstruction('OP_PRINT', offset);
-            case OpCode.OP_JUMP:
-                return this.jumpInstruction('OP_JUMP', 1, chunk, offset);
-            case OpCode.OP_JUMP_IF_FALSE:
-                return this.jumpInstruction('OP_JUMP_IF_FALSE', 1, chunk, offset);
-            case OpCode.OP_LOOP:
-                return this.jumpInstruction('OP_LOOP', -1, chunk, offset);
-            case OpCode.OP_CALL:
-                return this.byteInstruction('OP_CALL', chunk, offset);
-            case OpCode.OP_RETURN:
-                return this.simpleInstruction('OP_RETURN', offset);
-            case OpCode.OP_CLASS:
-                return this.constantInstruction('OP_CLASS', chunk, offset);
-            case OpCode.OP_GET_PROPERTY:
-                return this.constantInstruction('OP_GET_PROPERTY', chunk, offset);
-            case OpCode.OP_SET_PROPERTY:
-                return this.constantInstruction('OP_SET_PROPERTY', chunk, offset);
-            case OpCode.OP_CLOSURE:
-                return this.closureInstruction('OP_CLOSURE', chunk, offset);
-            case OpCode.OP_GET_UPVALUE:
-                return this.byteInstruction('OP_GET_UPVALUE', chunk, offset);
-            case OpCode.OP_SET_UPVALUE:
-                return this.byteInstruction('OP_SET_UPVALUE', chunk, offset);
-            case OpCode.OP_CLOSE_UPVALUE:
-                return this.simpleInstruction('OP_CLOSE_UPVALUE', offset);
-            case OpCode.OP_ARRAY:
-                return this.byteInstruction('OP_ARRAY', chunk, offset);
-            case OpCode.OP_INDEX_GET:
-                return this.simpleInstruction('OP_INDEX_GET', offset);
-            case OpCode.OP_INDEX_SET:
-                return this.simpleInstruction('OP_INDEX_SET', offset);
-            default:
-                console.log(`Unknown opcode ${instruction}`);
-                return offset + 1;
+        const kind = instruction === undefined ? undefined : OPERANDS[instruction as OpCode];
+        if (kind === undefined) {
+            return [`${head}Unknown opcode ${instruction}`, offset + 1];
         }
-    }
+        const name = OpCode[instruction as OpCode].padEnd(18);
+        const byte = (i: number) => chunk.code[offset + i];
+        const short = (i: number) => {
+            const hi = byte(i);
+            const lo = byte(i + 1);
+            return hi === undefined || lo === undefined ? undefined : (hi << 8) | lo;
+        };
 
-    private simpleInstruction(name: string, offset: number): number {
-        console.log(name);
-        return offset + 1;
-    }
-
-    private constantInstruction(name: string, chunk: Chunk, offset: number): number {
-        const constant = chunk.code[offset + 1];
-        if (constant === undefined) {
-            console.log(`${name.padEnd(16)} <undefined>`);
-            return offset + 2;
+        switch (kind) {
+            case 'none':
+                return [`${head}${OpCode[instruction as OpCode]}`, offset + 1];
+            case 'byte':
+                return [`${head}${name}${byte(1) ?? '<undefined>'}`, offset + 2];
+            case 'short':
+                return [`${head}${name}${short(1) ?? '<undefined>'}`, offset + 3];
+            case 'constant': {
+                const index = short(1);
+                const value = index === undefined ? undefined : chunk.constants[index];
+                const shown = value === undefined ? '<undefined>' : valueToString(value);
+                return [`${head}${name}${index ?? '?'} '${shown}'`, offset + 3];
+            }
+            case 'jump':
+            case 'loop': {
+                const jump = short(1);
+                if (jump === undefined) return [`${head}${name}<undefined>`, offset + 3];
+                const sign = kind === 'jump' ? 1 : -1;
+                return [`${head}${name}${offset} -> ${offset + 3 + sign * jump}`, offset + 3];
+            }
+            case 'closure': {
+                const index = short(1);
+                let current = offset + 3;
+                const fn = index === undefined ? undefined : chunk.constants[index];
+                const out = [
+                    `${head}${name}${index ?? '?'} '${fn === undefined ? '<undefined>' : valueToString(fn)}'`,
+                ];
+                const upvalueCount = fn instanceof ObjFunction ? fn.upvalueCount : 0;
+                for (let i = 0; i < upvalueCount; i++) {
+                    const isLocal = chunk.code[current];
+                    const slot = chunk.code[current + 1];
+                    out.push(
+                        `${current.toString().padStart(4, '0')}    |   ${''.padEnd(18)}${isLocal ? 'local' : 'upvalue'} ${slot}`,
+                    );
+                    current += 2;
+                }
+                return [out.join('\n'), current];
+            }
         }
-        const value = chunk.constants[constant];
-        // Value can be null, so check for undefined strictly if index is out of bounds,
-        // but chunk.constants returns Value | undefined.
-        // If it's undefined, it might be an issue or just uninitialized.
-        // Let's safe print.
-        console.log(`${name.padEnd(16)} ${constant} '${value ?? '<undefined>'}'`);
-        return offset + 2;
-    }
-
-    private byteInstruction(name: string, chunk: Chunk, offset: number): number {
-        const slot = chunk.code[offset + 1];
-        if (slot === undefined) {
-            console.log(`${name.padEnd(16)} <undefined>`);
-            return offset + 2;
-        }
-        console.log(`${name.padEnd(16)} ${slot}`);
-        return offset + 2;
-    }
-
-    private jumpInstruction(name: string, sign: number, chunk: Chunk, offset: number): number {
-        const high = chunk.code[offset + 1];
-        const low = chunk.code[offset + 2];
-
-        if (high === undefined || low === undefined) {
-            console.log(`${name.padEnd(16)} <undefined>`);
-            return offset + 3;
-        }
-
-        const jump = (high << 8) | low;
-        console.log(`${name.padEnd(16)} ${offset} -> ${offset + 3 + sign * jump}`);
-        return offset + 3;
-    }
-
-    private closureInstruction(name: string, chunk: Chunk, offset: number): number {
-        let current = offset + 1;
-        const constantIndex = chunk.code[current++];
-        if (constantIndex === undefined) {
-            console.log(`${name.padEnd(16)} <undefined>`);
-            return current;
-        }
-        const func = chunk.constants[constantIndex];
-        console.log(`${name.padEnd(16)} ${constantIndex} '${func ?? '<undefined>'}'`);
-
-        const upvalueCount =
-            func && typeof func === 'object' && 'upvalueCount' in func
-                ? (func as { upvalueCount: number }).upvalueCount
-                : 0;
-
-        for (let i = 0; i < upvalueCount; i++) {
-            const isLocal = chunk.code[current++];
-            const index = chunk.code[current++];
-            const localStr = isLocal ? 'local' : 'upvalue';
-            console.log(
-                `${(current - 2).toString().padStart(4, '0')}      |                     ${localStr} ${index}`,
-            );
-        }
-        return current;
     }
 }

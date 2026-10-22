@@ -1,11 +1,11 @@
-// Dual import for semantic separation: Stmt.X for statements, Expr.X for expressions
 import * as Stmt from './ast.js';
 import * as Expr from './ast.js';
 import { Chunk, OpCode } from './chunk.js';
 import { Token, TokenType } from './token.js';
 import { ObjFunction, Value } from './object.js';
+import { Diagnostic, formatDiagnostic } from './diagnostic.js';
 
-enum FunctionType {
+export enum FunctionType {
     TYPE_SCRIPT,
     TYPE_FUNCTION,
 }
@@ -21,9 +21,19 @@ interface Upvalue {
     isLocal: boolean;
 }
 
+export interface CompilerOptions {
+    /**
+     * Allow `return <value>;` in top-level script code. The returned value
+     * becomes the program's result. Useful when embedding. Defaults to false.
+     */
+    allowTopLevelReturn?: boolean;
+}
+
 export class Compiler implements Stmt.StmtVisitor<void>, Expr.ExprVisitor<void> {
-    private static readonly MAX_CONSTANTS = 256;
+    /** Constant operands are 16-bit, so each function may hold up to 65,536 constants. */
+    static readonly MAX_CONSTANTS = 65536;
     private static readonly MAX_LOCALS = 256;
+    private static readonly MAX_ARRAY_LITERAL = 65535;
 
     private enclosing: Compiler | null = null;
     private function: ObjFunction;
@@ -32,13 +42,24 @@ export class Compiler implements Stmt.StmtVisitor<void>, Expr.ExprVisitor<void> 
     private upvalues: Upvalue[] = [];
     private scopeDepth: number = 0;
     private currentLine: number = 0;
-    readonly errors: string[] = [];
+    private readonly options: CompilerOptions;
+    readonly diagnostics: Diagnostic[] = [];
 
-    get hadError(): boolean {
-        return this.errors.length > 0;
+    /** Human-readable error messages (formatted diagnostics). */
+    get errors(): string[] {
+        return this.diagnostics.map(formatDiagnostic);
     }
 
-    constructor(type: FunctionType = FunctionType.TYPE_SCRIPT, enclosing: Compiler | null = null) {
+    get hadError(): boolean {
+        return this.diagnostics.length > 0;
+    }
+
+    constructor(
+        options: CompilerOptions = {},
+        type: FunctionType = FunctionType.TYPE_SCRIPT,
+        enclosing: Compiler | null = null,
+    ) {
+        this.options = options;
         this.enclosing = enclosing;
         this.type = type;
         this.function = new ObjFunction(type === FunctionType.TYPE_SCRIPT ? null : '');
@@ -73,9 +94,7 @@ export class Compiler implements Stmt.StmtVisitor<void>, Expr.ExprVisitor<void> 
     }
 
     private error(message: string, line: number = this.currentLine): void {
-        const formatted = `[line ${line}] Compile Error: ${message}`;
-        this.errors.push(formatted);
-        console.error(formatted);
+        this.diagnostics.push({ kind: 'compile', message, line });
     }
 
     private emitByte(byte: number, line: number = this.currentLine) {
@@ -85,6 +104,13 @@ export class Compiler implements Stmt.StmtVisitor<void>, Expr.ExprVisitor<void> 
     private emitBytes(byte1: number, byte2: number) {
         this.emitByte(byte1);
         this.emitByte(byte2);
+    }
+
+    /** Emits an opcode followed by a 16-bit (big-endian) operand. */
+    private emitOpShort(op: OpCode, operand: number) {
+        this.emitByte(op);
+        this.emitByte((operand >> 8) & 0xff);
+        this.emitByte(operand & 0xff);
     }
 
     private makeConstant(value: Value): number {
@@ -103,11 +129,11 @@ export class Compiler implements Stmt.StmtVisitor<void>, Expr.ExprVisitor<void> 
     }
 
     private emitConstant(value: Value) {
-        this.emitBytes(OpCode.OP_CONSTANT, this.makeConstant(value));
+        this.emitOpShort(OpCode.OP_CONSTANT, this.makeConstant(value));
     }
 
     private emitReturn() {
-        this.emitByte(OpCode.OP_NIL); // Implicit return nil
+        this.emitByte(OpCode.OP_NIL);
         this.emitByte(OpCode.OP_RETURN);
     }
 
@@ -117,7 +143,6 @@ export class Compiler implements Stmt.StmtVisitor<void>, Expr.ExprVisitor<void> 
 
     private endScope() {
         this.scopeDepth--;
-        // Pop locals from stack
         while (this.locals.length > 0) {
             const top = this.locals[this.locals.length - 1];
             if (!top || top.depth <= this.scopeDepth) break;
@@ -201,7 +226,7 @@ export class Compiler implements Stmt.StmtVisitor<void>, Expr.ExprVisitor<void> 
             this.markInitialized();
         }
 
-        const compiler = new Compiler(FunctionType.TYPE_FUNCTION, this); // Pass enclosing compiler
+        const compiler = new Compiler(this.options, FunctionType.TYPE_FUNCTION, this); // Pass enclosing compiler
         compiler.function.name = stmt.name.lexeme;
         compiler.function.arity = stmt.params.length;
         compiler.currentLine = stmt.name.line;
@@ -223,10 +248,10 @@ export class Compiler implements Stmt.StmtVisitor<void>, Expr.ExprVisitor<void> 
         compiler.function.upvalueCount = compiler.upvalues.length;
 
         // Bubble nested compile errors up to the top-level compiler.
-        this.errors.push(...compiler.errors);
+        this.diagnostics.push(...compiler.diagnostics);
 
         const constant = this.makeConstant(compiler.function);
-        this.emitBytes(OpCode.OP_CLOSURE, constant);
+        this.emitOpShort(OpCode.OP_CLOSURE, constant);
 
         for (const upvalue of compiler.upvalues) {
             this.emitByte(upvalue.isLocal ? 1 : 0);
@@ -235,15 +260,24 @@ export class Compiler implements Stmt.StmtVisitor<void>, Expr.ExprVisitor<void> 
 
         if (this.scopeDepth === 0) {
             const nameConstant = this.makeConstant(stmt.name.lexeme);
-            this.emitBytes(OpCode.OP_DEFINE_GLOBAL, nameConstant);
+            this.emitOpShort(OpCode.OP_DEFINE_GLOBAL, nameConstant);
         }
     }
 
     visitClassStmt(stmt: Stmt.Class): void {
         this.currentLine = stmt.name.line;
         const constant = this.makeConstant(stmt.name.lexeme);
-        this.emitBytes(OpCode.OP_CLASS, constant);
-        this.emitBytes(OpCode.OP_DEFINE_GLOBAL, constant);
+
+        // Classes declared inside a block are locals, just like `var`.
+        if (this.scopeDepth > 0) {
+            this.declareLocal(stmt.name);
+            this.emitOpShort(OpCode.OP_CLASS, constant);
+            this.markInitialized();
+            return;
+        }
+
+        this.emitOpShort(OpCode.OP_CLASS, constant);
+        this.emitOpShort(OpCode.OP_DEFINE_GLOBAL, constant);
     }
 
     visitCallExpr(expr: Expr.Call): void {
@@ -257,7 +291,7 @@ export class Compiler implements Stmt.StmtVisitor<void>, Expr.ExprVisitor<void> 
 
     visitReturnStmt(stmt: Stmt.Return): void {
         this.currentLine = stmt.keyword.line;
-        if (this.type === FunctionType.TYPE_SCRIPT) {
+        if (this.type === FunctionType.TYPE_SCRIPT && !this.options.allowTopLevelReturn) {
             this.error("Can't return from top-level code.", stmt.keyword.line);
         }
 
@@ -291,15 +325,7 @@ export class Compiler implements Stmt.StmtVisitor<void>, Expr.ExprVisitor<void> 
         this.currentLine = stmt.name.line;
         // 1. Declare
         if (this.scopeDepth > 0) {
-            for (let i = this.locals.length - 1; i >= 0; i--) {
-                const local = this.locals[i];
-                if (!local) continue;
-                if (local.depth !== -1 && local.depth < this.scopeDepth) break;
-                if (local.name.lexeme === stmt.name.lexeme) {
-                    this.error('Already a variable with this name in this scope.', stmt.name.line);
-                }
-            }
-            this.addLocal(stmt.name);
+            this.declareLocal(stmt.name);
         }
 
         // 2. Initialize
@@ -314,8 +340,21 @@ export class Compiler implements Stmt.StmtVisitor<void>, Expr.ExprVisitor<void> 
             this.markInitialized();
         } else {
             const constant = this.makeConstant(stmt.name.lexeme);
-            this.emitBytes(OpCode.OP_DEFINE_GLOBAL, constant);
+            this.emitOpShort(OpCode.OP_DEFINE_GLOBAL, constant);
         }
+    }
+
+    /** Adds a new local in the current scope, rejecting duplicates in the same scope. */
+    private declareLocal(name: Token) {
+        for (let i = this.locals.length - 1; i >= 0; i--) {
+            const local = this.locals[i];
+            if (!local) continue;
+            if (local.depth !== -1 && local.depth < this.scopeDepth) break;
+            if (local.name.lexeme === name.lexeme) {
+                this.error('Already a variable with this name in this scope.', name.line);
+            }
+        }
+        this.addLocal(name);
     }
 
     visitIfStmt(stmt: Stmt.If): void {
@@ -419,6 +458,9 @@ export class Compiler implements Stmt.StmtVisitor<void>, Expr.ExprVisitor<void> 
             case TokenType.SLASH:
                 this.emitByte(OpCode.OP_DIVIDE);
                 break;
+            case TokenType.PERCENT:
+                this.emitByte(OpCode.OP_MODULO);
+                break;
         }
     }
 
@@ -467,7 +509,7 @@ export class Compiler implements Stmt.StmtVisitor<void>, Expr.ExprVisitor<void> 
                 this.emitBytes(OpCode.OP_GET_UPVALUE, arg);
             } else {
                 const constant = this.makeConstant(expr.name.lexeme);
-                this.emitBytes(OpCode.OP_GET_GLOBAL, constant);
+                this.emitOpShort(OpCode.OP_GET_GLOBAL, constant);
             }
         }
     }
@@ -506,7 +548,7 @@ export class Compiler implements Stmt.StmtVisitor<void>, Expr.ExprVisitor<void> 
                 this.emitBytes(OpCode.OP_SET_UPVALUE, arg);
             } else {
                 const constant = this.makeConstant(expr.name.lexeme);
-                this.emitBytes(OpCode.OP_SET_GLOBAL, constant);
+                this.emitOpShort(OpCode.OP_SET_GLOBAL, constant);
             }
         }
     }
@@ -515,7 +557,7 @@ export class Compiler implements Stmt.StmtVisitor<void>, Expr.ExprVisitor<void> 
         this.evaluate(expr.object);
         this.currentLine = expr.name.line;
         const name = this.makeConstant(expr.name.lexeme);
-        this.emitBytes(OpCode.OP_GET_PROPERTY, name);
+        this.emitOpShort(OpCode.OP_GET_PROPERTY, name);
     }
 
     visitSetExpr(expr: Expr.Set): void {
@@ -523,7 +565,7 @@ export class Compiler implements Stmt.StmtVisitor<void>, Expr.ExprVisitor<void> 
         this.evaluate(expr.value);
         this.currentLine = expr.name.line;
         const name = this.makeConstant(expr.name.lexeme);
-        this.emitBytes(OpCode.OP_SET_PROPERTY, name);
+        this.emitOpShort(OpCode.OP_SET_PROPERTY, name);
     }
 
     visitThisExpr(expr: Expr.This): void {
@@ -534,11 +576,21 @@ export class Compiler implements Stmt.StmtVisitor<void>, Expr.ExprVisitor<void> 
     }
 
     visitArrayLiteralExpr(expr: Expr.ArrayLiteral): void {
+        if (expr.elements.length > Compiler.MAX_ARRAY_LITERAL) {
+            this.error(`Too many elements in array literal (max ${Compiler.MAX_ARRAY_LITERAL}).`);
+        }
         for (const element of expr.elements) {
             this.evaluate(element);
         }
-        this.emitByte(OpCode.OP_ARRAY);
-        this.emitByte(expr.elements.length);
+        this.emitOpShort(OpCode.OP_ARRAY, expr.elements.length);
+    }
+
+    visitMapLiteralExpr(expr: Expr.MapLiteral): void {
+        for (const [key, value] of expr.entries) {
+            this.evaluate(key);
+            this.evaluate(value);
+        }
+        this.emitOpShort(OpCode.OP_MAP, expr.entries.length);
     }
 
     visitIndexGetExpr(expr: Expr.IndexGet): void {

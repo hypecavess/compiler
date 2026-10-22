@@ -1,15 +1,19 @@
 import { OpCode } from './chunk.js';
 import {
+    NativeFn,
     ObjArray,
     ObjClass,
     ObjClosure,
     ObjFunction,
     ObjInstance,
+    ObjMap,
     ObjNative,
     ObjUpvalue,
     Value,
     valueToString,
 } from './object.js';
+import { Diagnostic } from './diagnostic.js';
+import { verifyBytecode } from './verifier.js';
 
 export enum InterpretResult {
     OK,
@@ -18,12 +22,44 @@ export enum InterpretResult {
 }
 
 export interface VMOptions {
-    /** Maximum wall-clock execution time in milliseconds. Defaults to 5000. */
+    /**
+     * Maximum wall-clock execution time in milliseconds for Fradual bytecode.
+     * Defaults to 5000ms.
+     *
+     * IMPORTANT BOUNDARY NOTE:
+     * This timeout is evaluated between VM bytecode instruction dispatches.
+     * If a host native function runs a blocking synchronous loop inside JavaScript,
+     * the single-threaded JS runtime cannot interrupt that function until it returns.
+     * For full preemption against hostile synchronous natives, run the engine
+     * inside a Worker thread (`node:worker_threads` or Web Worker).
+     */
     maxExecutionMs?: number;
-    /** Maximum call frame depth. Defaults to 64. */
+    /**
+     * Maximum number of bytecode instructions per `interpret()` call.
+     * Provides a deterministic instruction budget and intra-VM execution boundary.
+     * Guarantees that identical bytecode executes the exact same number of bytecode
+     * dispatch cycles across all machines. Note: this applies strictly to VM opcodes;
+     * host execution time, host memory allocations, and host native callback durations are non-deterministic.
+     * Defaults to unlimited.
+     */
+    maxInstructions?: number;
+    /** Maximum call frame depth. Defaults to 256. */
     maxFrames?: number;
     /** Maximum value stack size. Defaults to 16384. */
     maxStackSize?: number;
+    /**
+     * Maximum depth for host native re-entrant calls (Script -> Host Native -> Script -> ...).
+     * Distinguishes host re-entrancy from the script's internal call stack (`maxFrames`).
+     * Defaults to 32.
+     */
+    maxReentrantDepth?: number;
+    /** Receives the output of `print` statements. Defaults to `console.log`. */
+    onPrint?: (text: string) => void;
+    /**
+     * Optional AbortSignal for cooperative cancellation from the host.
+     * When signaled, bytecode execution halts immediately and produces a runtime error.
+     */
+    abortSignal?: AbortSignal | undefined;
 }
 
 class CallFrame {
@@ -44,23 +80,45 @@ export class VM {
     globals: Map<string, Value> = new Map();
     openUpvalues: ObjUpvalue | null = null;
 
-    // Security limits (defaults)
-    private static readonly DEFAULT_MAX_FRAMES = 64;
+    /** The runtime error from the most recent `interpret()` call, if any. */
+    lastError: Diagnostic | null = null;
+    /** The value returned by top-level code in the most recent `interpret()` call. */
+    lastResult: Value = null;
+
+    private static readonly DEFAULT_MAX_FRAMES = 256;
     private static readonly DEFAULT_MAX_STACK_SIZE = 16384;
     private static readonly DEFAULT_MAX_EXECUTION_TIME_MS = 5000;
-    // Power of two: the timeout is checked every N instructions via a bitmask.
+    private static readonly DEFAULT_MAX_REENTRANT_DEPTH = 32;
     private static readonly TIMEOUT_CHECK_INTERVAL = 1024;
 
     private readonly maxFrames: number;
     private readonly maxStackSize: number;
     private readonly maxExecutionMs: number;
+    private readonly maxInstructions: number;
+    private readonly maxReentrantDepth: number;
+    private readonly onPrint: (text: string) => void;
+    private abortSignal?: AbortSignal | undefined;
+    private isAborted: boolean = false;
+    private abortReason: string = 'Execution aborted.';
     private startTime: number = 0;
     private instructionCount: number = 0;
+
+    private readonly executionContextStack: {
+        frames: CallFrame[];
+        frameCount: number;
+        stack: Value[];
+        openUpvalues: ObjUpvalue | null;
+        startTime: number;
+    }[] = [];
 
     constructor(options: VMOptions = {}) {
         this.maxFrames = options.maxFrames ?? VM.DEFAULT_MAX_FRAMES;
         this.maxStackSize = options.maxStackSize ?? VM.DEFAULT_MAX_STACK_SIZE;
         this.maxExecutionMs = options.maxExecutionMs ?? VM.DEFAULT_MAX_EXECUTION_TIME_MS;
+        this.maxInstructions = options.maxInstructions ?? Infinity;
+        this.maxReentrantDepth = options.maxReentrantDepth ?? VM.DEFAULT_MAX_REENTRANT_DEPTH;
+        this.onPrint = options.onPrint ?? ((text) => console.log(text));
+        this.abortSignal = options.abortSignal;
 
         this.defineNative('clock', 0, (_args: Value[]) => {
             return Date.now() / 1000;
@@ -68,8 +126,9 @@ export class VM {
         this.defineNative('len', 1, (args: Value[]) => {
             const arg = args[0];
             if (arg instanceof ObjArray) return arg.elements.length;
+            if (arg instanceof ObjMap) return arg.entries.size;
             if (typeof arg === 'string') return arg.length;
-            throw new TypeError("Argument to 'len' must be an array or a string.");
+            throw new TypeError("Argument to 'len' must be an array, map, or string.");
         });
         this.defineNative('push', 2, (args: Value[]) => {
             const arr = args[0];
@@ -89,17 +148,103 @@ export class VM {
         });
     }
 
-    private defineNative(name: string, arity: number, function_: (args: Value[]) => Value) {
-        this.globals.set(name, new ObjNative(name, arity, function_));
+    /**
+     * Registers a host function callable from scripts.
+     * Use `arity: -1` for a variadic function. Exceptions thrown by `fn`
+     * become script runtime errors and never escape the VM.
+     */
+    defineNative(name: string, arity: number, fn: NativeFn): void {
+        this.globals.set(name, new ObjNative(name, arity, fn));
+    }
+
+    setGlobal(name: string, value: Value): void {
+        this.globals.set(name, value);
+    }
+
+    getGlobal(name: string): Value | undefined {
+        return this.globals.get(name);
+    }
+
+    abort(reason: string = 'Execution aborted.'): void {
+        this.isAborted = true;
+        this.abortReason = reason;
+    }
+
+    /** Sets or replaces the AbortSignal on this VM. */
+    setAbortSignal(signal?: AbortSignal): void {
+        this.abortSignal = signal;
+    }
+
+    /**
+     * Resets the abort state so the VM instance can be reused for another run.
+     * - Resets internal `isAborted` flag and reason.
+     * - If `newSignal` is provided, it replaces the current abortSignal.
+     * - If no new signal is provided and the existing abortSignal is already aborted,
+     *   it automatically detaches the stale signal so the VM is not stuck in an aborted state.
+     */
+    resetAbort(newSignal?: AbortSignal): void {
+        this.isAborted = false;
+        this.abortReason = 'Execution aborted.';
+        if (newSignal !== undefined) {
+            this.abortSignal = newSignal;
+        } else if (this.abortSignal?.aborted) {
+            this.abortSignal = undefined;
+        }
     }
 
     interpret(function_: ObjFunction): InterpretResult {
+        const verifyDiagnostics = verifyBytecode(function_);
+        if (verifyDiagnostics.length > 0) {
+            this.lastError = verifyDiagnostics[0]!;
+            return InterpretResult.COMPILE_ERROR;
+        }
+
+        // If engine was already aborted prior to starting this execution:
+        if (this.isAborted || this.abortSignal?.aborted) {
+            const reason = this.isAborted
+                ? this.abortReason
+                : typeof this.abortSignal?.reason === 'string'
+                  ? this.abortSignal.reason
+                  : 'Execution aborted.';
+            this.lastError = {
+                kind: 'runtime',
+                message: reason,
+                line: 0,
+            };
+            return InterpretResult.RUNTIME_ERROR;
+        }
+
+        if (this.executionContextStack.length >= this.maxReentrantDepth) {
+            this.lastError = {
+                kind: 'runtime',
+                message: `Maximum re-entrant execution depth (${this.maxReentrantDepth}) exceeded.`,
+                line: 0,
+            };
+            return InterpretResult.RUNTIME_ERROR;
+        }
+
+        // Save outer execution context if currently re-entrant
+        const isReentrant = this.frameCount > 0;
+        if (isReentrant) {
+            this.executionContextStack.push({
+                frames: [...this.frames],
+                frameCount: this.frameCount,
+                stack: [...this.stack],
+                openUpvalues: this.openUpvalues,
+                startTime: this.startTime,
+            });
+        } else {
+            this.instructionCount = 0;
+            this.startTime = Date.now();
+            this.executionContextStack.length = 0;
+        }
+
         this.frames = [];
         this.frameCount = 0;
         this.stack = [];
         this.openUpvalues = null;
-        this.startTime = Date.now();
-        this.instructionCount = 0;
+        this.lastError = null;
+        this.lastResult = null;
 
         const closure = new ObjClosure(function_);
         this.push(closure);
@@ -112,19 +257,33 @@ export class VM {
             // never escape as uncaught exceptions to the host process.
             this.runtimeError(err instanceof Error ? err.message : String(err));
             return InterpretResult.RUNTIME_ERROR;
+        } finally {
+            if (isReentrant && this.executionContextStack.length > 0) {
+                const saved = this.executionContextStack.pop()!;
+                this.frames = saved.frames;
+                this.frameCount = saved.frameCount;
+                this.stack = saved.stack;
+                this.openUpvalues = saved.openUpvalues;
+                this.startTime = saved.startTime;
+            }
         }
     }
 
     private runtimeError(message: string): void {
-        console.error(`Runtime Error: ${message}`);
+        const stack: { function: string | null; line: number }[] = [];
         for (let i = this.frameCount - 1; i >= 0; i--) {
             const frame = this.frames[i];
             if (!frame) continue;
             const fn = frame.closure.function;
             const line = fn.chunk.lines[Math.max(0, frame.ip - 1)] ?? 0;
-            const location = fn.name ? `${fn.name}()` : 'script';
-            console.error(`  [line ${line}] in ${location}`);
+            stack.push({ function: fn.name || null, line });
         }
+        this.lastError = {
+            kind: 'runtime',
+            message,
+            line: stack[0]?.line ?? 0,
+            stack,
+        };
     }
 
     private run(): InterpretResult {
@@ -135,7 +294,22 @@ export class VM {
         }
 
         for (;;) {
-            // Security: check for timeout periodically (Date.now() per instruction is costly).
+            if (this.isAborted || this.abortSignal?.aborted) {
+                const reason = this.isAborted
+                    ? this.abortReason
+                    : typeof this.abortSignal?.reason === 'string'
+                      ? this.abortSignal.reason
+                      : 'Execution aborted.';
+                this.runtimeError(reason);
+                return InterpretResult.RUNTIME_ERROR;
+            }
+
+            if (this.instructionCount >= this.maxInstructions) {
+                this.runtimeError(
+                    `Instruction limit exceeded (${this.maxInstructions} instructions).`,
+                );
+                return InterpretResult.RUNTIME_ERROR;
+            }
             if (
                 (this.instructionCount++ & (VM.TIMEOUT_CHECK_INTERVAL - 1)) === 0 &&
                 Date.now() - this.startTime > this.maxExecutionMs
@@ -152,7 +326,7 @@ export class VM {
 
             switch (instruction) {
                 case OpCode.OP_CONSTANT: {
-                    const constantIndex = this.readByte(frame);
+                    const constantIndex = this.readShort(frame);
                     if (constantIndex === undefined) {
                         this.runtimeError('Corrupted bytecode: missing constant operand.');
                         return InterpretResult.RUNTIME_ERROR;
@@ -202,7 +376,12 @@ export class VM {
                         this.runtimeError('Corrupted bytecode: missing local slot operand.');
                         return InterpretResult.RUNTIME_ERROR;
                     }
-                    this.stack[frame.slots + slot] = this.peek(0);
+                    const target = frame.slots + slot;
+                    if (target < 0 || target >= this.stack.length) {
+                        this.runtimeError(`Invalid local slot ${slot}.`);
+                        return InterpretResult.RUNTIME_ERROR;
+                    }
+                    this.stack[target] = this.peek(0);
                     break;
                 }
 
@@ -270,14 +449,24 @@ export class VM {
                 case OpCode.OP_ADD: {
                     const b = this.pop();
                     const a = this.pop();
-                    if (typeof a === 'string' && typeof b === 'string') {
-                        this.push(a + b);
+                    if (typeof a === 'string' || typeof b === 'string') {
+                        this.push(valueToString(a) + valueToString(b));
                     } else if (typeof a === 'number' && typeof b === 'number') {
                         this.push(a + b);
                     } else {
-                        this.runtimeError('Operands must be two numbers or two strings.');
+                        this.runtimeError('Operands must be two numbers or at least one string.');
                         return InterpretResult.RUNTIME_ERROR;
                     }
+                    break;
+                }
+                case OpCode.OP_MODULO: {
+                    const b = this.pop();
+                    const a = this.pop();
+                    if (typeof a !== 'number' || typeof b !== 'number') {
+                        this.runtimeError('Operands must be numbers.');
+                        return InterpretResult.RUNTIME_ERROR;
+                    }
+                    this.push(a % b);
                     break;
                 }
                 case OpCode.OP_SUBTRACT: {
@@ -327,7 +516,7 @@ export class VM {
                 }
 
                 case OpCode.OP_PRINT: {
-                    console.log(valueToString(this.pop()));
+                    this.onPrint(valueToString(this.pop()));
                     break;
                 }
 
@@ -369,7 +558,17 @@ export class VM {
                     const callee = this.peek(argCount);
 
                     if (callee instanceof ObjNative) {
-                        if (argCount != callee.arity) {
+                        if (this.isAborted || this.abortSignal?.aborted) {
+                            const reason = this.isAborted
+                                ? this.abortReason
+                                : typeof this.abortSignal?.reason === 'string'
+                                  ? this.abortSignal.reason
+                                  : 'Execution aborted.';
+                            this.runtimeError(reason);
+                            return InterpretResult.RUNTIME_ERROR;
+                        }
+
+                        if (callee.arity >= 0 && argCount != callee.arity) {
                             this.runtimeError(
                                 `Expected ${callee.arity} arguments but got ${argCount}.`,
                             );
@@ -384,19 +583,33 @@ export class VM {
                             this.runtimeError(err instanceof Error ? err.message : String(err));
                             return InterpretResult.RUNTIME_ERROR;
                         }
-                        this.stack.length -= argCount + 1; // Pop args and function
-                        this.push(result);
+
+                        if (this.isAborted || this.abortSignal?.aborted) {
+                            const reason = this.isAborted
+                                ? this.abortReason
+                                : typeof this.abortSignal?.reason === 'string'
+                                  ? this.abortSignal.reason
+                                  : 'Execution aborted.';
+                            this.runtimeError(reason);
+                            return InterpretResult.RUNTIME_ERROR;
+                        }
+
+                        this.stack.length -= argCount + 1;
+                        this.push(result === undefined ? null : result);
                         break;
                     }
 
                     if (callee instanceof ObjClass) {
+                        if (argCount !== 0) {
+                            this.runtimeError(`Expected 0 arguments but got ${argCount}.`);
+                            return InterpretResult.RUNTIME_ERROR;
+                        }
                         const instance = new ObjInstance(callee);
-                        // replace class with instance
-                        if (this.stack.length - argCount - 1 < 0) {
+                        if (this.stack.length - 1 < 0) {
                             this.runtimeError('Stack underflow during class instantiation.');
                             return InterpretResult.RUNTIME_ERROR;
                         }
-                        this.stack[this.stack.length - argCount - 1] = instance;
+                        this.stack[this.stack.length - 1] = instance;
                         break;
                     }
 
@@ -428,7 +641,8 @@ export class VM {
                     this.closeUpvalues(frame.slots);
                     this.frameCount--;
                     if (this.frameCount === 0) {
-                        this.pop(); // Pop main script function
+                        this.pop();
+                        this.lastResult = result;
                         return InterpretResult.OK;
                     }
 
@@ -462,13 +676,19 @@ export class VM {
 
                     const instance = this.peek(0);
 
+                    if (instance instanceof ObjMap) {
+                        this.pop();
+                        this.push(instance.entries.get(name) ?? null);
+                        break;
+                    }
+
                     if (!(instance instanceof ObjInstance)) {
-                        this.runtimeError('Only instances have properties.');
+                        this.runtimeError('Only instances and maps have properties.');
                         return InterpretResult.RUNTIME_ERROR;
                     }
 
                     if (instance.fields.has(name)) {
-                        this.pop(); // Instance
+                        this.pop();
                         this.push(instance.fields.get(name)!);
                     } else {
                         this.runtimeError(`Undefined property '${name}'.`);
@@ -483,20 +703,28 @@ export class VM {
 
                     const instance = this.peek(1);
 
+                    if (instance instanceof ObjMap) {
+                        const value = this.pop();
+                        instance.entries.set(name, value);
+                        this.pop();
+                        this.push(value);
+                        break;
+                    }
+
                     if (!(instance instanceof ObjInstance)) {
-                        this.runtimeError('Only instances have fields.');
+                        this.runtimeError('Only instances and maps have fields.');
                         return InterpretResult.RUNTIME_ERROR;
                     }
 
                     const value = this.pop();
                     instance.fields.set(name, value);
-                    this.pop(); // Instance
+                    this.pop();
                     this.push(value);
                     break;
                 }
 
                 case OpCode.OP_CLOSURE: {
-                    const constantIndex = this.readByte(frame);
+                    const constantIndex = this.readShort(frame);
                     if (constantIndex === undefined) {
                         this.runtimeError('Corrupted bytecode: missing closure operand.');
                         return InterpretResult.RUNTIME_ERROR;
@@ -550,11 +778,15 @@ export class VM {
                         return InterpretResult.RUNTIME_ERROR;
                     }
 
-                    // A closed upvalue is identified by location === -1; `closed`
-                    // itself may legitimately hold nil/false/0.
-                    this.push(
-                        upvalue.location === -1 ? upvalue.closed : this.stack[upvalue.location]!,
-                    );
+                    if (upvalue.location !== -1) {
+                        if (upvalue.location < 0 || upvalue.location >= this.stack.length) {
+                            this.runtimeError('Corrupted upvalue stack location.');
+                            return InterpretResult.RUNTIME_ERROR;
+                        }
+                        this.push(this.stack[upvalue.location]!);
+                    } else {
+                        this.push(upvalue.closed);
+                    }
                     break;
                 }
 
@@ -579,6 +811,10 @@ export class VM {
                     if (upvalue.location === -1) {
                         upvalue.closed = value;
                     } else {
+                        if (upvalue.location < 0 || upvalue.location >= this.stack.length) {
+                            this.runtimeError('Corrupted upvalue stack location.');
+                            return InterpretResult.RUNTIME_ERROR;
+                        }
                         this.stack[upvalue.location] = value;
                     }
                     break;
@@ -591,7 +827,7 @@ export class VM {
                 }
 
                 case OpCode.OP_ARRAY: {
-                    const count = this.readByte(frame);
+                    const count = this.readShort(frame);
                     if (count === undefined) {
                         this.runtimeError('Corrupted bytecode: missing array element count.');
                         return InterpretResult.RUNTIME_ERROR;
@@ -601,10 +837,35 @@ export class VM {
                     for (let i = 0; i < count; i++) {
                         elements.push(this.peek(count - 1 - i));
                     }
-                    // Pop elements
                     this.stack.length -= count;
                     const array = new ObjArray(elements);
                     this.push(array);
+                    break;
+                }
+
+                case OpCode.OP_MAP: {
+                    const count = this.readShort(frame);
+                    if (count === undefined) {
+                        this.runtimeError('Corrupted bytecode: missing map entry count.');
+                        return InterpretResult.RUNTIME_ERROR;
+                    }
+
+                    const map = new ObjMap();
+                    const entries: [string, Value][] = [];
+                    for (let i = 0; i < count; i++) {
+                        const value = this.pop();
+                        const key = this.pop();
+                        if (typeof key !== 'string') {
+                            this.runtimeError('Map keys must be strings.');
+                            return InterpretResult.RUNTIME_ERROR;
+                        }
+                        entries.push([key, value]);
+                    }
+                    for (let i = entries.length - 1; i >= 0; i--) {
+                        const [k, v] = entries[i]!;
+                        map.entries.set(k, v);
+                    }
+                    this.push(map);
                     break;
                 }
 
@@ -612,8 +873,17 @@ export class VM {
                     const index = this.pop();
                     const object = this.pop();
 
+                    if (object instanceof ObjMap) {
+                        if (typeof index !== 'string') {
+                            this.runtimeError('Map index must be a string.');
+                            return InterpretResult.RUNTIME_ERROR;
+                        }
+                        this.push(object.entries.get(index) ?? null);
+                        break;
+                    }
+
                     if (!(object instanceof ObjArray)) {
-                        this.runtimeError('Only arrays can be indexed.');
+                        this.runtimeError('Only arrays and maps can be indexed.');
                         return InterpretResult.RUNTIME_ERROR;
                     }
                     if (typeof index !== 'number' || !Number.isInteger(index)) {
@@ -635,8 +905,18 @@ export class VM {
                     const index = this.pop();
                     const object = this.pop();
 
+                    if (object instanceof ObjMap) {
+                        if (typeof index !== 'string') {
+                            this.runtimeError('Map index must be a string.');
+                            return InterpretResult.RUNTIME_ERROR;
+                        }
+                        object.entries.set(index, value);
+                        this.push(value);
+                        break;
+                    }
+
                     if (!(object instanceof ObjArray)) {
-                        this.runtimeError('Only arrays can be indexed.');
+                        this.runtimeError('Only arrays and maps can be indexed.');
                         return InterpretResult.RUNTIME_ERROR;
                     }
                     if (typeof index !== 'number' || !Number.isInteger(index)) {
@@ -675,9 +955,9 @@ export class VM {
         return (high << 8) | low;
     }
 
-    /** Reads a one-byte constant operand and validates that it names a string constant. */
+    /** Reads a 16-bit constant operand and validates that it names a string constant. */
     private readConstantName(frame: CallFrame): string | undefined {
-        const constantIndex = this.readByte(frame);
+        const constantIndex = this.readShort(frame);
         if (constantIndex === undefined) {
             this.runtimeError('Corrupted bytecode: missing constant operand.');
             return undefined;
@@ -720,7 +1000,7 @@ export class VM {
             const upvalue = this.openUpvalues;
             const val = this.stack[upvalue.location];
             upvalue.closed = val ?? null;
-            upvalue.location = -1; // Invalid location
+            upvalue.location = -1;
             this.openUpvalues = upvalue.next;
         }
     }

@@ -10,6 +10,7 @@ export type Value =
     | ObjClass
     | ObjInstance
     | ObjArray
+    | ObjMap
     | ObjClosure
     | ObjUpvalue;
 
@@ -82,9 +83,21 @@ export class ObjArray {
     }
 }
 
+export class ObjMap {
+    entries: Map<string, Value> = new Map();
+    constructor(entries?: [string, Value][]) {
+        if (entries) {
+            this.entries = new Map(entries);
+        }
+    }
+    toString(): string {
+        return valueToString(this);
+    }
+}
+
 /**
  * Converts a runtime value to its canonical user-facing string representation.
- * Guards against cyclic array references to prevent unbounded recursion.
+ * Guards against cyclic references to prevent unbounded recursion.
  */
 export function valueToString(value: Value, seen: Set<object> = new Set()): string {
     if (value === null) return 'nil';
@@ -97,13 +110,23 @@ export function valueToString(value: Value, seen: Set<object> = new Set()): stri
         seen.delete(value);
         return `[${inner}]`;
     }
+    if (value instanceof ObjMap) {
+        if (seen.has(value)) return '{...}';
+        seen.add(value);
+        const pairs: string[] = [];
+        for (const [k, v] of value.entries) {
+            pairs.push(`"${k}": ${valueToString(v, seen)}`);
+        }
+        seen.delete(value);
+        return `{${pairs.join(', ')}}`;
+    }
     return value.toString();
 }
 
 export class ObjUpvalue {
-    location: number; // Index of the local variable in the stack (if open)
-    closed: Value | null = null; // The value if closed
-    next: ObjUpvalue | null = null; // Pointer to next upvalue in open upvalues list
+    location: number;
+    closed: Value | null = null;
+    next: ObjUpvalue | null = null;
 
     constructor(location: number) {
         this.location = location;
