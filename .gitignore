@@ -1,5 +1,7 @@
 # Dependencies
 node_modules/
+web/node_modules/
+**/node_modules/
 
 # Build output
 dist/
@@ -7,6 +9,8 @@ coverage/
 
 # Environment
 .env
+.env*
+web/.env*
 
 # Logs
 npm-debug.log*
@@ -26,10 +30,13 @@ logs/
 .DS_Store
 Thumbs.db
 
-# Temporary files
+# Temporary & framework files
 tmp/
 *.tmp
 .vercel
-.env*
+web/.vercel
 .next/
 web/.next/
+web/out/
+*.tsbuildinfo
+web/*.tsbuildinfo
